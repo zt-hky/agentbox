@@ -5,6 +5,7 @@ import { admin } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
 import { account, session, user, verification } from "@agentbox/db/schema";
+import { openAccessRequest } from "./approve";
 import { appOrigin, bootstrapAdminEmails } from "./env";
 
 function createAuth() {
@@ -68,7 +69,10 @@ function createAuth() {
                 .update(user)
                 .set({ role: "admin", accessStatus: "active" })
                 .where(eq(user.id, created.id));
+              return;
             }
+            // Everyone else is queued for review immediately; the request page then only waits.
+            await openAccessRequest(db, created.id);
           },
         },
       },

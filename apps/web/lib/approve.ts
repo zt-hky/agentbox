@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { encrypt, randomToken } from "@agentbox/core/tokens";
 import {
   accessRequests,
@@ -15,8 +15,8 @@ import { enqueueWorkspaceJob } from "./jobs";
 import { checkSlug } from "./slug";
 import { addMonths } from "./time";
 
-export interface ApproveInput {
-  requestId: string;
+export interface GrantInput {
+  userId: string;
   adminId: string;
   slug: string;
   planId: string;
@@ -25,7 +25,7 @@ export interface ApproveInput {
   now?: Date;
 }
 
-export interface ApproveResult {
+export interface GrantResult {
   workspaceId: string;
   slot: number;
   userId: string;
@@ -37,22 +37,29 @@ function isUniqueViolation(e: unknown): boolean {
   return code === "23505" || causeCode === "23505";
 }
 
-/** Approve an access request in one transaction (plan step 9). */
-export async function approveAccessRequest(
-  database: Db,
-  input: ApproveInput,
-): Promise<ApproveResult> {
+/**
+ * Grant access to a user who has no workspace yet, in one transaction (plan step 9): whatever their
+ * access status (pending, rejected, suspended before approval, never requested, or already active
+ * like a bootstrap admin). A pending request is closed as approved; otherwise an approved request
+ * row is recorded for history.
+ */
+export async function grantAccess(database: Db, input: GrantInput): Promise<GrantResult> {
   const now = input.now ?? new Date();
   try {
     return await database.transaction(async (tx) => {
-      const reqRows = await tx
-        .select()
-        .from(accessRequests)
-        .where(eq(accessRequests.id, input.requestId))
-        .for("update");
-      const request = reqRows[0];
-      if (!request) throw new UserError("Request not found");
-      if (request.status !== "pending") throw new UserError("Request was already decided");
+      const target = (
+        await tx.select().from(user).where(eq(user.id, input.userId)).for("update")
+      )[0];
+      if (!target) throw new UserError("User not found");
+
+      const existing = await tx
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.userId, target.id))
+        .limit(1);
+      if (existing.length > 0) {
+        throw new UserError("User already has a workspace; reactivate them instead");
+      }
 
       const slugCheck = await checkSlug(input.slug, async (s) => {
         const r = await tx
@@ -64,16 +71,8 @@ export async function approveAccessRequest(
       });
       if (!slugCheck.ok) throw new UserError(slugCheck.error);
 
-      const planRows = await tx.select().from(plans).where(eq(plans.id, input.planId)).limit(1);
-      const plan = planRows[0];
+      const plan = (await tx.select().from(plans).where(eq(plans.id, input.planId)).limit(1))[0];
       if (!plan || !plan.active) throw new UserError("Plan not found or inactive");
-
-      const existing = await tx
-        .select({ id: workspaces.id })
-        .from(workspaces)
-        .where(eq(workspaces.userId, request.userId))
-        .limit(1);
-      if (existing.length > 0) throw new UserError("User already has a workspace");
 
       const slotRes = await tx.execute<{ slot: number }>(
         sql`select nextval('tenant_slot_seq')::int as slot`,
@@ -81,16 +80,21 @@ export async function approveAccessRequest(
       const slot = slotRes.rows[0]?.slot;
       if (typeof slot !== "number") throw new UserError("No tenant slot available");
 
-      await tx
+      const decided = { status: "approved" as const, decidedBy: input.adminId, decidedAt: now };
+      const closed = await tx
         .update(accessRequests)
-        .set({ status: "approved", decidedBy: input.adminId, decidedAt: now })
-        .where(eq(accessRequests.id, request.id));
-      await tx.update(user).set({ accessStatus: "active" }).where(eq(user.id, request.userId));
+        .set(decided)
+        .where(and(eq(accessRequests.userId, target.id), eq(accessRequests.status, "pending")))
+        .returning({ id: accessRequests.id });
+      if (closed.length === 0 && target.accessStatus !== "active") {
+        await tx.insert(accessRequests).values({ userId: target.id, message: null, ...decided });
+      }
+      await tx.update(user).set({ accessStatus: "active" }).where(eq(user.id, target.id));
 
       const cycleEnd = addMonths(now, 1);
       await tx
         .insert(subscriptions)
-        .values({ userId: request.userId, planId: plan.id, cycleStart: now, cycleEnd })
+        .values({ userId: target.id, planId: plan.id, cycleStart: now, cycleEnd })
         .onConflictDoUpdate({
           target: subscriptions.userId,
           set: {
@@ -104,13 +108,13 @@ export async function approveAccessRequest(
         });
       await tx
         .insert(creditBalances)
-        .values({ userId: request.userId, balanceMicro: 0n })
+        .values({ userId: target.id, balanceMicro: 0n })
         .onConflictDoNothing();
 
       const inserted = await tx
         .insert(workspaces)
         .values({
-          userId: request.userId,
+          userId: target.id,
           slug: input.slug,
           slot,
           status: "provisioning",
@@ -124,14 +128,30 @@ export async function approveAccessRequest(
         actorId: input.adminId,
         action: "access.approve",
         targetType: "user",
-        targetId: request.userId,
-        metadata: { requestId: request.id, slug: input.slug, slot, planId: plan.id },
+        targetId: target.id,
+        metadata: {
+          requestId: closed[0]?.id ?? null,
+          previous: target.accessStatus,
+          slug: input.slug,
+          slot,
+          planId: plan.id,
+        },
         ip: input.ip,
       });
-      return { workspaceId, slot, userId: request.userId };
+      return { workspaceId, slot, userId: target.id };
     });
   } catch (e) {
     if (isUniqueViolation(e)) throw new UserError("Slug or workspace already exists");
     throw e;
   }
+}
+
+/** Open a pending request for a newly signed-up user, so admins see them right away. */
+export async function openAccessRequest(database: Db, userId: string): Promise<void> {
+  await database.transaction(async (tx) => {
+    const target = (await tx.select().from(user).where(eq(user.id, userId)).for("update"))[0];
+    if (!target || target.accessStatus !== "none") return;
+    await tx.insert(accessRequests).values({ userId, message: null });
+    await tx.update(user).set({ accessStatus: "pending" }).where(eq(user.id, userId));
+  });
 }

@@ -23,6 +23,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  GrantAccessDialog,
+  type GrantTarget,
+  type PlanOption,
+} from "@/components/grant-access-dialog";
 import { creditAdjustSchema } from "@/lib/schemas";
 import {
   adjustUserCredits,
@@ -156,6 +161,37 @@ export function AccessControl({
     >
       Suspend
     </Button>
+  );
+}
+
+/** For users without a workspace: one step gives access, a plan and a workspace. */
+export function ApproveUserButton({
+  label,
+  target,
+  plans,
+  defaultPlanId,
+  baseDomain,
+}: {
+  label: string;
+  target: GrantTarget;
+  plans: PlanOption[];
+  defaultPlanId: string;
+  baseDomain: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>{label}</Button>
+      {open ? (
+        <GrantAccessDialog
+          target={target}
+          plans={plans}
+          defaultPlanId={defaultPlanId}
+          baseDomain={baseDomain}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 

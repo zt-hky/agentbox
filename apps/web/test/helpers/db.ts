@@ -44,6 +44,17 @@ export async function seedRequester(db: Db, email: string) {
   return { userId: id, requestId: req!.id };
 }
 
+/** Insert a user with no access request, in any access status. */
+export async function seedUser(
+  db: Db,
+  email: string,
+  accessStatus: (typeof schema.user.$inferInsert)["accessStatus"],
+) {
+  const id = `s_${++counter}_${randomBytes(3).toString("hex")}`;
+  await db.insert(schema.user).values({ id, name: email.split("@")[0]!, email, accessStatus });
+  return id;
+}
+
 export async function seedAdmin(db: Db, email = "admin@example.com") {
   const id = `a_${++counter}_${randomBytes(3).toString("hex")}`;
   await db

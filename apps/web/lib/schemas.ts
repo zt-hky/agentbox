@@ -18,8 +18,8 @@ export const slugSchema = z
     "3-20 chars, lowercase letters and digits, starting with a letter, not reserved",
   );
 
-export const approveSchema = z.object({
-  requestId: z.uuid(),
+export const grantSchema = z.object({
+  userId: z.string().min(1).max(128),
   slug: slugSchema,
   planId: z.uuid(),
 });

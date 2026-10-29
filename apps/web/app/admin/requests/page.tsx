@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { desc, eq, ne } from "drizzle-orm";
-import { db, readSetting } from "@agentbox/db/client";
-import { accessRequests, plans, user } from "@agentbox/db/schema";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
+import { db } from "@agentbox/db/client";
+import { accessRequests, user, workspaces } from "@agentbox/db/schema";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -12,20 +12,30 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { baseDomain } from "@/lib/env";
 import { formatDateTime } from "@/lib/format";
+import { planOptions } from "@/lib/queries";
 import { slugFromEmail } from "@/lib/slug";
-import { RequestsTable, type PlanOption, type PendingRow } from "./requests-table";
+import { RequestsTable, type AwaitingRow } from "./requests-table";
 
 export const metadata: Metadata = { title: "Access requests" };
 
+const STATUS_ORDER: Record<string, number> = { pending: 0, none: 1, rejected: 2, suspended: 3 };
+
 export default async function RequestsPage() {
-  const [pending, decided, planRows, billing] = await Promise.all([
+  const [awaiting, decided, plans] = await Promise.all([
+    // Everyone signed in without a workspace: pending requests first, then users who never
+    // requested, were rejected, or were suspended before being approved.
     db
-      .select({ r: accessRequests, u: user })
-      .from(accessRequests)
-      .innerJoin(user, eq(user.id, accessRequests.userId))
-      .where(eq(accessRequests.status, "pending"))
-      .orderBy(accessRequests.createdAt),
+      .select({ u: user, r: accessRequests })
+      .from(user)
+      .leftJoin(workspaces, eq(workspaces.userId, user.id))
+      .leftJoin(
+        accessRequests,
+        and(eq(accessRequests.userId, user.id), eq(accessRequests.status, "pending")),
+      )
+      .where(and(ne(user.accessStatus, "active"), isNull(workspaces.id)))
+      .orderBy(user.createdAt),
     db
       .select({ r: accessRequests, u: user })
       .from(accessRequests)
@@ -33,34 +43,39 @@ export default async function RequestsPage() {
       .where(ne(accessRequests.status, "pending"))
       .orderBy(desc(accessRequests.decidedAt))
       .limit(20),
-    db.select().from(plans).where(eq(plans.active, true)).orderBy(plans.name),
-    readSetting(db, "billing"),
+    planOptions(),
   ]);
-  const rows: PendingRow[] = pending.map(({ r, u }) => ({
-    id: r.id,
-    userName: u.name,
-    email: u.email,
-    message: r.message,
-    createdAt: r.createdAt.toISOString(),
-    suggestedSlug: slugFromEmail(u.email),
-  }));
-  const options: PlanOption[] = planRows.map((p) => ({ id: p.id, name: p.name }));
-  const defaultPlanId =
-    billing && options.some((p) => p.id === billing.defaultPlanId)
-      ? billing.defaultPlanId
-      : (options[0]?.id ?? "");
+  const rows: AwaitingRow[] = awaiting
+    .map(({ u, r }) => ({
+      userId: u.id,
+      userName: u.name,
+      email: u.email,
+      accessStatus: u.accessStatus,
+      requestId: r?.id ?? null,
+      message: r?.message ?? null,
+      since: (r?.createdAt ?? u.createdAt).toISOString(),
+      suggestedSlug: slugFromEmail(u.email),
+    }))
+    .sort((a, b) => (STATUS_ORDER[a.accessStatus] ?? 9) - (STATUS_ORDER[b.accessStatus] ?? 9));
+  const pendingCount = rows.filter((r) => r.accessStatus === "pending").length;
 
   return (
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Pending requests</CardTitle>
+          <CardTitle>Waiting for approval ({pendingCount} pending)</CardTitle>
           <CardDescription>
-            Approving creates the user&apos;s workspace and subscription.
+            Everyone who has signed in but has no workspace yet. Approving gives access, assigns a
+            plan and provisions the workspace.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <RequestsTable rows={rows} plans={options} defaultPlanId={defaultPlanId} />
+          <RequestsTable
+            rows={rows}
+            plans={plans.options}
+            defaultPlanId={plans.defaultPlanId}
+            baseDomain={baseDomain()}
+          />
         </CardContent>
       </Card>
       <Card>
@@ -72,7 +87,8 @@ export default async function RequestsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>User</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Decision</TableHead>
+                <TableHead>Reason</TableHead>
                 <TableHead>Decided</TableHead>
               </TableRow>
             </TableHeader>
@@ -83,6 +99,7 @@ export default async function RequestsPage() {
                   <TableCell>
                     <StatusBadge status={r.status} />
                   </TableCell>
+                  <TableCell className="max-w-sm whitespace-normal">{r.reason ?? ""}</TableCell>
                   <TableCell>{formatDateTime(r.decidedAt)}</TableCell>
                 </TableRow>
               ))}

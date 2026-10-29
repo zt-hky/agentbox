@@ -3,16 +3,24 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
-import { creditLedger, plans, user, workspaces } from "@agentbox/db/schema";
+import { creditLedger, user, workspaces } from "@agentbox/db/schema";
 import { LedgerTable, type LedgerRow } from "@/components/ledger-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { baseDomain } from "@/lib/env";
 import { formatCredits } from "@/lib/money";
-import { creditLabel } from "@/lib/queries";
+import { creditLabel, planOptions } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
+import { slugFromEmail } from "@/lib/slug";
 import { loadBalance, loadSubscription } from "@/lib/user-data";
-import { AccessControl, CreditsForm, PlanControl, RoleControl } from "./user-controls";
+import {
+  AccessControl,
+  ApproveUserButton,
+  CreditsForm,
+  PlanControl,
+  RoleControl,
+} from "./user-controls";
 
 export const metadata: Metadata = { title: "User" };
 
@@ -22,7 +30,7 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
   const target = (await db.select().from(user).where(eq(user.id, id)).limit(1))[0];
   if (!target) notFound();
 
-  const [sub, balance, label, ws, ledger, planRows] = await Promise.all([
+  const [sub, balance, label, ws, ledger, plans] = await Promise.all([
     loadSubscription(id),
     loadBalance(id),
     creditLabel(),
@@ -33,7 +41,7 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
       .where(eq(creditLedger.userId, id))
       .orderBy(desc(creditLedger.createdAt))
       .limit(200),
-    db.select().from(plans).where(eq(plans.active, true)).orderBy(plans.name),
+    planOptions(),
   ]);
   const rows: LedgerRow[] = ledger.map((l) => ({
     id: l.id,
@@ -69,14 +77,52 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
             )}
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-end gap-6">
-          <RoleControl userId={target.id} role={target.role ?? "user"} isSelf={isSelf} />
-          <PlanControl
-            userId={target.id}
-            planId={sub?.plan.id ?? null}
-            plans={planRows.map((p) => ({ id: p.id, name: p.name }))}
-          />
-          <AccessControl userId={target.id} accessStatus={target.accessStatus} isSelf={isSelf} />
+        <CardContent className="space-y-4">
+          {workspace ? null : (
+            <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              {target.accessStatus === "active"
+                ? "This account has access but no workspace yet. Create one to assign a plan."
+                : "This user has not been approved yet. Approving gives access, assigns a plan and provisions a workspace in one step."}
+            </div>
+          )}
+          <div className="flex flex-wrap items-end gap-6">
+            <RoleControl userId={target.id} role={target.role ?? "user"} isSelf={isSelf} />
+            {workspace ? (
+              <>
+                <PlanControl
+                  userId={target.id}
+                  planId={sub?.plan.id ?? null}
+                  plans={plans.options}
+                />
+                <AccessControl
+                  userId={target.id}
+                  accessStatus={target.accessStatus}
+                  isSelf={isSelf}
+                />
+              </>
+            ) : (
+              <>
+                <ApproveUserButton
+                  label={target.accessStatus === "active" ? "Create workspace" : "Approve access"}
+                  target={{
+                    userId: target.id,
+                    email: target.email,
+                    suggestedSlug: slugFromEmail(target.email),
+                  }}
+                  plans={plans.options}
+                  defaultPlanId={plans.defaultPlanId}
+                  baseDomain={baseDomain()}
+                />
+                {target.accessStatus !== "suspended" && !isSelf ? (
+                  <AccessControl
+                    userId={target.id}
+                    accessStatus={target.accessStatus}
+                    isSelf={isSelf}
+                  />
+                ) : null}
+              </>
+            )}
+          </div>
         </CardContent>
       </Card>
 

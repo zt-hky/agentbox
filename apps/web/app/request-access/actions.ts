@@ -10,11 +10,13 @@ import { UserError } from "@/lib/errors";
 import { accessRequestSchema } from "@/lib/schemas";
 import { requireUser } from "@/lib/session";
 
+/** Opens a request (first time or after a rejection), or updates the note on the pending one. */
 export async function submitAccessRequest(input: z.input<typeof accessRequestSchema>) {
   return guard(async () => {
     const session = await requireUser();
     const parsed = accessRequestSchema.safeParse(input);
     if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Invalid input");
+    const message = parsed.data.message || null;
 
     await db.transaction(async (tx) => {
       const rows = await tx
@@ -23,21 +25,18 @@ export async function submitAccessRequest(input: z.input<typeof accessRequestSch
         .where(eq(user.id, session.user.id))
         .for("update");
       const status = rows[0]?.accessStatus;
-      if (status !== "none" && status !== "rejected") {
+      if (status !== "none" && status !== "rejected" && status !== "pending") {
         throw new UserError("You cannot submit a request right now");
       }
-      const pending = await tx
-        .select({ id: accessRequests.id })
-        .from(accessRequests)
+      const updated = await tx
+        .update(accessRequests)
+        .set({ message })
         .where(
           and(eq(accessRequests.userId, session.user.id), eq(accessRequests.status, "pending")),
         )
-        .limit(1);
-      if (pending.length === 0) {
-        await tx.insert(accessRequests).values({
-          userId: session.user.id,
-          message: parsed.data.message || null,
-        });
+        .returning({ id: accessRequests.id });
+      if (updated.length === 0) {
+        await tx.insert(accessRequests).values({ userId: session.user.id, message });
       }
       await tx.update(user).set({ accessStatus: "pending" }).where(eq(user.id, session.user.id));
     });
