@@ -84,7 +84,8 @@ export function sanitizeInspect(doc: unknown, upstream: string): unknown {
   const out: Record<string, unknown> = { ...(doc as Record<string, unknown>) };
   const cfg = out.Config;
   if (typeof cfg === "object" && cfg !== null && !Array.isArray(cfg)) {
-    const { Env: _env, ...rest } = cfg as Record<string, unknown>;
+    const rest: Record<string, unknown> = { ...(cfg as Record<string, unknown>) };
+    delete rest.Env;
     out.Config = rest;
   }
   if (typeof out.Name === "string") out.Name = rewriteName(out.Name, upstream);

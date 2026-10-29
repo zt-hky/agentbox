@@ -326,13 +326,15 @@ describe("metering transaction", () => {
       finishedAt,
     });
     const day = 24 * 3600_000;
-    await t.db.insert(jobs).values([
-      row("queued", null),
-      row("queued", null),
-      row("running", null),
-      row("failed", new Date(clock.now().getTime() - day + 1000)),
-      row("failed", new Date(clock.now().getTime() - day - 1000)),
-    ]);
+    await t.db
+      .insert(jobs)
+      .values([
+        row("queued", null),
+        row("queued", null),
+        row("running", null),
+        row("failed", new Date(clock.now().getTime() - day + 1000)),
+        row("failed", new Date(clock.now().getTime() - day - 1000)),
+      ]);
     await meterTick(ctx(), createMeteringState());
     const [r] = await t.db.select().from(hostStats);
     expect((r!.payload as { worker: unknown }).worker).toEqual({

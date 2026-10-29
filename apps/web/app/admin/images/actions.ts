@@ -20,7 +20,11 @@ export async function buildImage(t3Ref: string) {
     const parsed = t3RefSchema.safeParse(t3Ref);
     if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Invalid ref");
     await db.transaction(async (tx) => {
-      const building = await tx.select({ id: images.id }).from(images).where(eq(images.status, "building")).limit(1);
+      const building = await tx
+        .select({ id: images.id })
+        .from(images)
+        .where(eq(images.status, "building"))
+        .limit(1);
       if (building.length > 0) throw new UserError("An image build is already running");
       const inserted = await tx
         .insert(images)
@@ -29,7 +33,11 @@ export async function buildImage(t3Ref: string) {
       const imageRowId = inserted[0]!.id;
       await tx
         .insert(jobs)
-        .values({ type: "build_image", workspaceId: null, payload: { imageRowId, t3Ref: parsed.data } })
+        .values({
+          type: "build_image",
+          workspaceId: null,
+          payload: { imageRowId, t3Ref: parsed.data },
+        })
         .onConflictDoNothing();
       await writeAudit(tx, {
         actorId: admin.id,
@@ -48,7 +56,13 @@ export async function buildImage(t3Ref: string) {
 export async function pollImage(imageRowId: string) {
   return guard(async () => {
     await adminContext();
-    const row = (await db.select().from(images).where(eq(images.id, idSchema.parse(imageRowId))).limit(1))[0];
+    const row = (
+      await db
+        .select()
+        .from(images)
+        .where(eq(images.id, idSchema.parse(imageRowId)))
+        .limit(1)
+    )[0];
     if (!row) throw new UserError("Image not found");
     return { status: row.status, buildLog: tailLog(row.buildLog) };
   });
@@ -59,13 +73,21 @@ export async function activateImage(imageRowId: string, overrideReason: string |
     const { admin, ip } = await adminContext();
     await db.transaction(async (tx) => {
       const row = (
-        await tx.select().from(images).where(eq(images.id, idSchema.parse(imageRowId))).for("update")
+        await tx
+          .select()
+          .from(images)
+          .where(eq(images.id, idSchema.parse(imageRowId)))
+          .for("update")
       )[0];
       if (!row) throw new UserError("Image not found");
-      if (row.status !== "ready" || !row.imageId) throw new UserError("Only a ready image can be activated");
+      if (row.status !== "ready" || !row.imageId)
+        throw new UserError("Only a ready image can be activated");
       const { overrideReason: stored } = activationOverride(row.scanSummary, overrideReason);
       await tx.update(images).set({ status: "ready" }).where(eq(images.status, "active"));
-      await tx.update(images).set({ status: "active", overrideReason: stored }).where(eq(images.id, row.id));
+      await tx
+        .update(images)
+        .set({ status: "active", overrideReason: stored })
+        .where(eq(images.id, row.id));
       await writeAudit(tx, {
         actorId: admin.id,
         action: "image.activate",
@@ -84,7 +106,11 @@ export async function retireImage(imageRowId: string) {
     const { admin, ip } = await adminContext();
     await db.transaction(async (tx) => {
       const row = (
-        await tx.select().from(images).where(eq(images.id, idSchema.parse(imageRowId))).for("update")
+        await tx
+          .select()
+          .from(images)
+          .where(eq(images.id, idSchema.parse(imageRowId)))
+          .for("update")
       )[0];
       if (!row) throw new UserError("Image not found");
       if (row.status !== "ready") throw new UserError("Only a ready image can be retired");
@@ -113,7 +139,8 @@ export async function deleteImage(imageRowId: string) {
       const id = idSchema.parse(imageRowId);
       const row = (await tx.select().from(images).where(eq(images.id, id)).for("update"))[0];
       if (!row) throw new UserError("Image not found");
-      if (row.status === "active") throw new UserError("Activate another image before deleting the active one");
+      if (row.status === "active")
+        throw new UserError("Activate another image before deleting the active one");
       if (row.status === "building") throw new UserError("A build is still running");
       if (row.status === "failed" && !row.imageId) {
         await tx.delete(images).where(eq(images.id, row.id));
@@ -130,7 +157,9 @@ export async function deleteImage(imageRowId: string) {
           )
           .limit(1);
         if (queued.length > 0) throw new UserError("Deletion is already queued");
-        await tx.insert(jobs).values({ type: "delete_image", workspaceId: null, payload: { imageRowId: row.id } });
+        await tx
+          .insert(jobs)
+          .values({ type: "delete_image", workspaceId: null, payload: { imageRowId: row.id } });
       }
       await writeAudit(tx, {
         actorId: admin.id,

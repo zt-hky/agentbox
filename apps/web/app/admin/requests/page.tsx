@@ -2,20 +2,12 @@ import type { Metadata } from "next";
 import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
 import { accessRequests, user, workspaces } from "@agentbox/db/schema";
-import { StatusBadge } from "@/components/status-badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { PageHeader } from "@/components/page-header";
+import { Section } from "@/components/section";
 import { baseDomain } from "@/lib/env";
-import { formatDateTime } from "@/lib/format";
 import { planOptions } from "@/lib/queries";
 import { slugFromEmail } from "@/lib/slug";
+import { DecidedTable, type DecidedRow } from "./decided-table";
 import { RequestsTable, type AwaitingRow } from "./requests-table";
 
 export const metadata: Metadata = { title: "Access requests" };
@@ -59,54 +51,35 @@ export default async function RequestsPage() {
     .sort((a, b) => (STATUS_ORDER[a.accessStatus] ?? 9) - (STATUS_ORDER[b.accessStatus] ?? 9));
   const pendingCount = rows.filter((r) => r.accessStatus === "pending").length;
 
+  const decidedRows: DecidedRow[] = decided.map(({ r, u }) => ({
+    id: r.id,
+    email: u.email,
+    status: r.status,
+    reason: r.reason,
+    decidedAt: r.decidedAt ? r.decidedAt.toISOString() : null,
+  }));
+
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>Waiting for approval ({pendingCount} pending)</CardTitle>
-          <CardDescription>
-            Everyone who has signed in but has no workspace yet. Approving gives access, assigns a
-            plan and provisions the workspace.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RequestsTable
-            rows={rows}
-            plans={plans.options}
-            defaultPlanId={plans.defaultPlanId}
-            baseDomain={baseDomain()}
-          />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Recently decided</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Decision</TableHead>
-                <TableHead>Reason</TableHead>
-                <TableHead>Decided</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {decided.map(({ r, u }) => (
-                <TableRow key={r.id}>
-                  <TableCell>{u.email}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={r.status} />
-                  </TableCell>
-                  <TableCell className="max-w-sm whitespace-normal">{r.reason ?? ""}</TableCell>
-                  <TableCell>{formatDateTime(r.decidedAt)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <PageHeader
+        title="Access requests"
+        description="Approving gives access, assigns a plan and provisions the workspace in one step."
+      />
+      <Section
+        title="Waiting for approval"
+        description={`${pendingCount} pending. Everyone who has signed in but has no workspace yet is listed, pending requests first.`}
+        bodyClassName="p-0"
+      >
+        <RequestsTable
+          rows={rows}
+          plans={plans.options}
+          defaultPlanId={plans.defaultPlanId}
+          baseDomain={baseDomain()}
+        />
+      </Section>
+      <Section title="Recently decided" description="The last 20 decisions." bodyClassName="p-0">
+        <DecidedTable rows={decidedRows} />
+      </Section>
     </>
   );
 }

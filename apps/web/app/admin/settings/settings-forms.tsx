@@ -15,8 +15,8 @@ import {
   type HibernationSettings,
   type SettingKey,
 } from "@agentbox/core/settings";
+import { Section } from "@/components/section";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -89,34 +89,28 @@ function HibernationForm({ initial }: { initial: HibernationSettings }) {
   });
   const { pending, submit } = useSave<HibernationSettings>("hibernation");
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Hibernation</CardTitle>
-        <CardDescription>
-          A workspace is idle when no request arrived, CPU and network stay below the thresholds,
-          for the timeout. Max awake hours of 0 disables the cap.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Form {...form}>
-          <form className="grid gap-4 md:grid-cols-2" onSubmit={form.handleSubmit(submit)}>
-            <NumberField form={form} name="idleTimeoutMinutes" label="Idle timeout (minutes)" />
-            <NumberField form={form} name="idleCpuPercent" label="Idle CPU threshold (%)" />
-            <NumberField
-              form={form}
-              name="idleNetBytesPerMin"
-              label="Idle network threshold (bytes/min)"
-            />
-            <NumberField form={form} name="maxAwakeHours" label="Max awake hours" />
-            <div>
-              <Button type="submit" disabled={pending}>
-                Save hibernation
-              </Button>
-            </div>
-          </form>
-        </Form>
-      </CardContent>
-    </Card>
+    <Section
+      title="Hibernation"
+      description="A workspace is idle when no request arrived, CPU and network stay below the thresholds, for the timeout. Max awake hours of 0 disables the cap."
+    >
+      <Form {...form}>
+        <form className="grid gap-4 md:grid-cols-2" onSubmit={form.handleSubmit(submit)}>
+          <NumberField form={form} name="idleTimeoutMinutes" label="Idle timeout (minutes)" />
+          <NumberField form={form} name="idleCpuPercent" label="Idle CPU threshold (%)" />
+          <NumberField
+            form={form}
+            name="idleNetBytesPerMin"
+            label="Idle network threshold (bytes/min)"
+          />
+          <NumberField form={form} name="maxAwakeHours" label="Max awake hours" />
+          <div>
+            <Button type="submit" disabled={pending}>
+              Save hibernation
+            </Button>
+          </div>
+        </form>
+      </Form>
+    </Section>
   );
 }
 
@@ -127,32 +121,26 @@ function CapacityForm({ initial }: { initial: CapacitySettings }) {
   });
   const { pending, submit } = useSave<CapacitySettings>("capacity");
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Capacity</CardTitle>
-        <CardDescription>
-          Wake-ups are refused when running workspaces&apos; memory limits would exceed this
-          fraction of host memory.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Form {...form}>
-          <form className="grid gap-4 md:grid-cols-2" onSubmit={form.handleSubmit(submit)}>
-            <NumberField
-              form={form}
-              name="maxRunningMemoryRatio"
-              label="Max running memory ratio (0-1)"
-              step="0.01"
-            />
-            <div className="md:col-span-2">
-              <Button type="submit" disabled={pending}>
-                Save capacity
-              </Button>
-            </div>
-          </form>
-        </Form>
-      </CardContent>
-    </Card>
+    <Section
+      title="Capacity"
+      description="Wake-ups are refused when running workspaces' memory limits would exceed this fraction of host memory."
+    >
+      <Form {...form}>
+        <form className="grid gap-4 md:grid-cols-2" onSubmit={form.handleSubmit(submit)}>
+          <NumberField
+            form={form}
+            name="maxRunningMemoryRatio"
+            label="Max running memory ratio (0-1)"
+            step="0.01"
+          />
+          <div className="md:col-span-2">
+            <Button type="submit" disabled={pending}>
+              Save capacity
+            </Button>
+          </div>
+        </form>
+      </Form>
+    </Section>
   );
 }
 
@@ -169,62 +157,57 @@ function BillingForm({
   });
   const { pending, submit } = useSave<z.input<typeof billingSettingsSchema>>("billing");
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Billing</CardTitle>
-        <CardDescription>
-          The default plan is used for downgrades when a package cannot be renewed.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Form {...form}>
-          <form className="grid gap-4 md:grid-cols-2" onSubmit={form.handleSubmit(submit)}>
-            <FormField
-              control={form.control}
-              name="creditLabel"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Credit label</FormLabel>
+    <Section
+      title="Billing"
+      description="The default plan is used for downgrades when a package cannot be renewed."
+    >
+      <Form {...form}>
+        <form className="grid gap-4 md:grid-cols-2" onSubmit={form.handleSubmit(submit)}>
+          <FormField
+            control={form.control}
+            name="creditLabel"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Credit label</FormLabel>
+                <FormControl>
+                  <Input {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="defaultPlanId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Default plan</FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
                   <FormControl>
-                    <Input {...field} />
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
                   </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="defaultPlanId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Default plan</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {plans.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="md:col-span-2">
-              <Button type="submit" disabled={pending}>
-                Save billing
-              </Button>
-            </div>
-          </form>
-        </Form>
-      </CardContent>
-    </Card>
+                  <SelectContent>
+                    {plans.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <div className="md:col-span-2">
+            <Button type="submit" disabled={pending}>
+              Save billing
+            </Button>
+          </div>
+        </form>
+      </Form>
+    </Section>
   );
 }
 
@@ -235,10 +218,10 @@ export function SettingsForms(props: {
   plans: { id: string; name: string }[];
 }) {
   return (
-    <div className="space-y-4">
+    <>
       <HibernationForm initial={props.hibernation} />
       <CapacityForm initial={props.capacity} />
       <BillingForm initial={props.billing} plans={props.plans} />
-    </div>
+    </>
   );
 }

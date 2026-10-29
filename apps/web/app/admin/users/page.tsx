@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
 import { plans, subscriptions, user, workspaces } from "@agentbox/db/schema";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
+import { Section } from "@/components/section";
 import { UsersTable, type UserRow } from "./users-table";
 
 export const metadata: Metadata = { title: "Users" };
@@ -27,13 +28,18 @@ export default async function AdminUsersPage() {
     createdAt: u.createdAt.toISOString(),
   }));
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Users</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <>
+      <PageHeader
+        title="Users"
+        description="Everyone who has signed in. Open a user to change their plan, access or credits."
+      />
+      <Section
+        title="All users"
+        description={`${data.length} shown, newest first.`}
+        bodyClassName="p-0"
+      >
         <UsersTable rows={data} />
-      </CardContent>
-    </Card>
+      </Section>
+    </>
   );
 }

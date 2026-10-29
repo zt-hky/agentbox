@@ -3,6 +3,11 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { CodeBlock } from "@/components/code-block";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { EmptyState } from "@/components/empty-state";
+import { Mono } from "@/components/mono";
+import { Section } from "@/components/section";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,14 +22,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import type { ActionResult } from "@/lib/action";
+import type { ImageVersions } from "@/lib/admin/system";
+import { formatDateTime } from "@/lib/format";
 import { activateImage, buildImage, deleteImage, pollImage, retireImage } from "./actions";
 
 export interface ImageRow {
@@ -36,6 +36,7 @@ export interface ImageRow {
   buildLog: string;
   overrideReason: string | null;
   scan: { counts: Record<string, number>; fixableCritical: number } | null;
+  versions: ImageVersions | null;
 }
 
 export const POLL_INTERVAL_MS = 3000;
@@ -65,21 +66,28 @@ function BuildLog({ id, initial }: { id: string; initial: string }) {
     };
   }, [id, router]);
   return (
-    <pre className="max-h-72 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap">
-      {log || "Waiting for build output..."}
-    </pre>
+    <CodeBlock
+      text={log || "Waiting for build output..."}
+      label="Build log"
+      maxHeight="18rem"
+      wrap
+    />
   );
 }
 
 function ScanBadges({ scan }: { scan: ImageRow["scan"] }) {
-  if (!scan) return <span className="text-muted-foreground">no scan</span>;
+  if (!scan) return <span className="text-meta text-muted-foreground">No scan results</span>;
   return (
-    <div className="flex flex-wrap gap-1">
-      <Badge variant={scan.counts.CRITICAL ? "destructive" : "outline"}>C {scan.counts.CRITICAL ?? 0}</Badge>
-      <Badge variant="outline">H {scan.counts.HIGH ?? 0}</Badge>
-      <Badge variant="outline">M {scan.counts.MEDIUM ?? 0}</Badge>
-      <Badge variant="outline">L {scan.counts.LOW ?? 0}</Badge>
-      {scan.fixableCritical > 0 ? <Badge variant="destructive">{scan.fixableCritical} fixable critical</Badge> : null}
+    <div className="flex flex-wrap gap-1.5">
+      <Badge variant={scan.counts.CRITICAL ? "destructive" : "outline"}>
+        Critical {scan.counts.CRITICAL ?? 0}
+      </Badge>
+      <Badge variant="outline">High {scan.counts.HIGH ?? 0}</Badge>
+      <Badge variant="outline">Medium {scan.counts.MEDIUM ?? 0}</Badge>
+      <Badge variant="outline">Low {scan.counts.LOW ?? 0}</Badge>
+      {scan.fixableCritical > 0 ? (
+        <Badge variant="destructive">{scan.fixableCritical} fixable critical</Badge>
+      ) : null}
     </div>
   );
 }
@@ -95,16 +103,23 @@ function ActivateDialog({ row, onClose }: { row: ImageRow; onClose: () => void }
         <DialogHeader>
           <DialogTitle>Activate {row.t3Ref}</DialogTitle>
           <DialogDescription>
-            New and restarted workspaces will use this image. The current active image becomes ready.
+            New and restarted workspaces will use this image. The current active image becomes
+            ready.
           </DialogDescription>
         </DialogHeader>
         <ScanBadges scan={row.scan} />
         {needsOverride ? (
           <div className="space-y-1.5">
             <Label htmlFor="override">
-              {row.scan ? "Fixable CRITICAL vulnerabilities found" : "No scan results"}: override reason (required)
+              {row.scan ? "Fixable critical vulnerabilities found" : "No scan results"}: override
+              reason (required)
             </Label>
-            <Textarea id="override" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <Textarea
+              id="override"
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
           </div>
         ) : null}
         <DialogFooter>
@@ -131,6 +146,115 @@ function ActivateDialog({ row, onClose }: { row: ImageRow; onClose: () => void }
   );
 }
 
+function ImageEntry({
+  r,
+  onActivate,
+  busy,
+}: {
+  r: ImageRow;
+  onActivate: () => void;
+  busy: boolean;
+}) {
+  const router = useRouter();
+  const run = async (fn: () => Promise<ActionResult>, message: string) => {
+    const res = await fn();
+    if (res.ok) {
+      toast.success(message);
+      router.refresh();
+    }
+    return res;
+  };
+  return (
+    <li className="grid gap-3 px-5 py-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <StatusBadge status={r.status} />
+          <span className="truncate font-medium">
+            <Mono>{r.t3Ref}</Mono>
+          </span>
+        </div>
+        <span className="text-meta text-muted-foreground">
+          {formatDateTime(new Date(r.createdAt))}
+        </span>
+        <div className="ml-auto flex gap-2">
+          {r.status === "ready" ? (
+            <>
+              <Button size="sm" onClick={onActivate} disabled={busy}>
+                Activate
+              </Button>
+              <ConfirmDialog
+                trigger={
+                  <Button size="sm" variant="outline" disabled={busy}>
+                    Retire
+                  </Button>
+                }
+                title={`Retire ${r.t3Ref}?`}
+                description="It stays on disk but can no longer be activated. You can delete it afterwards."
+                confirmLabel="Retire image"
+                onConfirm={() => run(() => retireImage(r.id), "Image retired")}
+              />
+            </>
+          ) : null}
+          {r.status !== "active" && r.status !== "building" ? (
+            <ConfirmDialog
+              trigger={
+                <Button size="sm" variant="outline" disabled={busy}>
+                  Delete
+                </Button>
+              }
+              title={`Delete ${r.t3Ref}?`}
+              description="The image files are removed from the host. This cannot be undone."
+              confirmLabel="Delete image"
+              destructive
+              onConfirm={() => run(() => deleteImage(r.id), "Delete queued")}
+            />
+          ) : null}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-meta text-muted-foreground">
+        {r.imageId ? (
+          <span>
+            Image ID <Mono className="text-foreground">{r.imageId.slice(0, 12)}</Mono>
+          </span>
+        ) : null}
+        {r.status === "building" || r.status === "failed" ? null : <ScanBadges scan={r.scan} />}
+      </div>
+      {r.overrideReason ? (
+        <p className="text-meta text-muted-foreground">
+          Activated with an override: {r.overrideReason}
+        </p>
+      ) : null}
+      {r.versions ? (
+        <details className="group text-meta">
+          <summary className="w-fit cursor-pointer rounded-md text-signal hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+            Tools in this image
+          </summary>
+          <dl className="mt-2 grid max-w-xl gap-x-6 gap-y-1 sm:grid-cols-[8rem_1fr]">
+            {r.versions.map((v) => (
+              <div key={v.label} className="contents">
+                <dt className="text-muted-foreground">{v.label}</dt>
+                <dd className="break-words">
+                  <Mono>{v.value}</Mono>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      ) : null}
+      {r.status === "failed" && r.buildLog ? (
+        <details className="text-meta">
+          <summary className="w-fit cursor-pointer rounded-md text-signal hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+            Build log
+          </summary>
+          <div className="mt-2">
+            <CodeBlock text={r.buildLog} label="Build log" maxHeight="16rem" wrap />
+          </div>
+        </details>
+      ) : null}
+    </li>
+  );
+}
+
 export function ImagesPanel({ rows }: { rows: ImageRow[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -138,111 +262,66 @@ export function ImagesPanel({ rows }: { rows: ImageRow[] }) {
   const [activating, setActivating] = useState<ImageRow | null>(null);
   const building = rows.filter((r) => r.status === "building");
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, success: string) =>
-    start(async () => {
-      const res = await fn();
-      if (!res.ok) toast.error(res.error ?? "Failed");
-      else {
-        toast.success(success);
-        router.refresh();
-      }
-    });
-
   return (
-    <div className="space-y-6">
-      <form
-        className="flex items-end gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          run(() => buildImage(t3Ref), "Build queued");
-        }}
+    <>
+      <Section
+        title="Build a new image"
+        description="Builds take several minutes. Only one build can run at a time."
       >
-        <div className="space-y-1.5">
-          <Label htmlFor="t3ref">T3 ref (branch, tag or commit)</Label>
-          <Input id="t3ref" value={t3Ref} onChange={(e) => setT3Ref(e.target.value)} className="w-72" />
-        </div>
-        <Button type="submit" disabled={pending || building.length > 0}>
-          Build image
-        </Button>
-      </form>
+        <form
+          className="flex flex-wrap items-end gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            start(async () => {
+              const res = await buildImage(t3Ref);
+              if (!res.ok) toast.error(res.error);
+              else {
+                toast.success("Build queued");
+                router.refresh();
+              }
+            });
+          }}
+        >
+          <div className="w-full space-y-1.5 sm:w-80">
+            <Label htmlFor="t3ref">T3 ref (branch, tag or commit)</Label>
+            <Input
+              id="t3ref"
+              value={t3Ref}
+              onChange={(e) => setT3Ref(e.target.value)}
+              className="font-mono"
+            />
+          </div>
+          <Button type="submit" disabled={pending || building.length > 0}>
+            Build image
+          </Button>
+        </form>
+        {building.map((r) => (
+          <div key={r.id} className="mt-5 space-y-2">
+            <p className="text-sm font-medium">
+              Building <Mono>{r.t3Ref}</Mono>
+            </p>
+            <BuildLog id={r.id} initial={r.buildLog} />
+          </div>
+        ))}
+      </Section>
 
-      {building.map((r) => (
-        <div key={r.id} className="space-y-2">
-          <div className="text-sm font-medium">Building {r.t3Ref}</div>
-          <BuildLog id={r.id} initial={r.buildLog} />
-        </div>
-      ))}
-
-      <div className="overflow-hidden rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Ref</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Image</TableHead>
-              <TableHead>Scan</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                  No images yet. Build one to let workspaces start.
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-medium">
-                    {r.t3Ref}
-                    {r.overrideReason ? (
-                      <div className="text-xs font-normal text-muted-foreground">override: {r.overrideReason}</div>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={r.status} />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{r.imageId ? r.imageId.slice(0, 12) : ""}</TableCell>
-                  <TableCell>{r.status === "building" ? "" : <ScanBadges scan={r.scan} />}</TableCell>
-                  <TableCell>{r.createdAt.slice(0, 16).replace("T", " ")}</TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-2">
-                      {r.status === "ready" ? (
-                        <>
-                          <Button size="sm" onClick={() => setActivating(r)} disabled={pending}>
-                            Activate
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={pending}
-                            onClick={() => run(() => retireImage(r.id), "Image retired")}
-                          >
-                            Retire
-                          </Button>
-                        </>
-                      ) : null}
-                      {r.status !== "active" && r.status !== "building" ? (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={pending}
-                          onClick={() => run(() => deleteImage(r.id), "Delete queued")}
-                        >
-                          Delete
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <Section title="Images" bodyClassName="p-0">
+        {rows.length === 0 ? (
+          <div className="p-5">
+            <EmptyState
+              title="No images yet"
+              description="Build one above so workspaces can start."
+            />
+          </div>
+        ) : (
+          <ul className="divide-y">
+            {rows.map((r) => (
+              <ImageEntry key={r.id} r={r} busy={pending} onActivate={() => setActivating(r)} />
+            ))}
+          </ul>
+        )}
+      </Section>
       {activating ? <ActivateDialog row={activating} onClose={() => setActivating(null)} /> : null}
-    </div>
+    </>
   );
 }

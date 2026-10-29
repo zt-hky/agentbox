@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { readSetting, db } from "@agentbox/db/client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { allPlans, creditLabel } from "@/lib/queries";
 import { microToCredits } from "@/lib/money";
 import { PlansPanel, type PlanRow } from "./plans-panel";
@@ -28,17 +27,5 @@ export default async function AdminPlansPage() {
     active: p.active,
     isDefault: billing?.defaultPlanId === p.id,
   }));
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Plans</CardTitle>
-        <CardDescription>
-          Limits apply to each subscriber&apos;s workspace. Prices are in {label}s per month.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <PlansPanel rows={data} />
-      </CardContent>
-    </Card>
-  );
+  return <PlansPanel rows={data} label={label} />;
 }

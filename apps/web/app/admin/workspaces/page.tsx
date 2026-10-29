@@ -1,34 +1,25 @@
 import type { Metadata } from "next";
-import { desc, eq } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
-import { user, workspaces } from "@agentbox/db/schema";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { WorkspacesTable, type WorkspaceRow } from "./workspaces-table";
+import { PageHeader } from "@/components/page-header";
+import { loadRack } from "@/lib/admin/workspaces-ops";
+import { requireAdmin } from "@/lib/session";
+import { RackList } from "./rack-list";
 
 export const metadata: Metadata = { title: "Workspaces" };
+export const dynamic = "force-dynamic";
 
 export default async function AdminWorkspacesPage() {
-  const rows = await db
-    .select({ w: workspaces, email: user.email })
-    .from(workspaces)
-    .innerJoin(user, eq(user.id, workspaces.userId))
-    .orderBy(desc(workspaces.createdAt));
-  const data: WorkspaceRow[] = rows.map(({ w, email }) => ({
-    slug: w.slug,
-    email,
-    status: w.status,
-    slot: w.slot,
-    imageId: w.imageId,
-    lastActivityAt: w.lastActivityAt?.toISOString() ?? null,
-  }));
+  await requireAdmin();
+  const now = new Date();
+  const rows = await loadRack(db, now);
+  const running = rows.filter((r) => r.status === "running").length;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Workspaces</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <WorkspacesTable rows={data} />
-      </CardContent>
-    </Card>
+    <>
+      <PageHeader
+        title="Workspaces"
+        description={`${running} of ${rows.length} running. Readings come from the latest metering tick, about once a minute.`}
+      />
+      <RackList rows={rows} now={now.toISOString()} />
+    </>
   );
 }

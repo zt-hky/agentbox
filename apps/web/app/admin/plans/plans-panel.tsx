@@ -6,7 +6,10 @@ import { useForm, type Path } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import type { z } from "zod";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DataTable, columnHelper, type Columns } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
+import { Section } from "@/components/section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -34,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatBytes } from "@/lib/format";
 import { planSchema } from "@/lib/schemas";
 import { deletePlan, savePlan } from "./actions";
 
@@ -150,9 +154,9 @@ function PlanDialog({ row, onClose }: { row: PlanRow | null; onClose: () => void
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="free">free</SelectItem>
-                      <SelectItem value="package">package</SelectItem>
-                      <SelectItem value="payg">payg</SelectItem>
+                      <SelectItem value="free">Free</SelectItem>
+                      <SelectItem value="package">Package</SelectItem>
+                      <SelectItem value="payg">Pay as you go</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -222,39 +226,57 @@ function PlanDialog({ row, onClose }: { row: PlanRow | null; onClose: () => void
   );
 }
 
-export function PlansPanel({ rows }: { rows: PlanRow[] }) {
+const KIND_LABEL: Record<PlanRow["kind"], string> = {
+  free: "Free",
+  package: "Package",
+  payg: "Pay as you go",
+};
+
+export function PlansPanel({ rows, label }: { rows: PlanRow[]; label: string }) {
   const router = useRouter();
   const [editing, setEditing] = useState<PlanRow | "new" | null>(null);
-  const [pending, start] = useTransition();
 
   const h = columnHelper<PlanRow>();
   const columns = [
     h.accessor("name", {
       header: "Plan",
       cell: (c) => (
-        <div className="flex items-center gap-2 font-medium">
+        <div className="flex flex-wrap items-center gap-2 font-medium">
           {c.getValue()}
-          {c.row.original.isDefault ? <Badge variant="secondary">default</Badge> : null}
-          {c.row.original.active ? null : <Badge variant="outline">inactive</Badge>}
+          {c.row.original.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+          {c.row.original.active ? null : <Badge variant="outline">Inactive</Badge>}
         </div>
       ),
     }),
-    h.accessor("kind", { header: "Kind" }),
-    h.accessor("monthlyPrice", { header: "Monthly" }),
+    h.accessor("kind", { header: "Kind", cell: (c) => KIND_LABEL[c.getValue()] }),
+    h.accessor("monthlyPrice", {
+      header: `Per month (${label}s)`,
+      cell: (c) => c.getValue(),
+    }),
     h.display({
       id: "limits",
       header: "Limits",
       cell: (c) => {
         const r = c.row.original;
-        return `${r.cpuLimit} CPU / ${r.memoryLimitMb} MB / ${r.diskLimitGb} GB / ${r.pidsLimit} pids`;
+        return (
+          <span className="whitespace-nowrap">
+            {r.cpuLimit} CPU, {formatBytes(r.memoryLimitMb * 1024 * 1024)} memory, {r.diskLimitGb}{" "}
+            GiB disk, {r.pidsLimit} processes
+          </span>
+        );
       },
     }),
     h.display({
       id: "allowance",
-      header: "Allowance",
+      header: "Included each cycle",
       cell: (c) => {
         const r = c.row.original;
-        return `${r.allowanceRuntimeHours} h / ${r.allowanceCpuCoreHours} core-h / ${r.allowanceMemGbHours} GB-h`;
+        return (
+          <span className="whitespace-nowrap">
+            {r.allowanceRuntimeHours} h runtime, {r.allowanceCpuCoreHours} core-h,{" "}
+            {r.allowanceMemGbHours} GB-h
+          </span>
+        );
       },
     }),
     h.display({
@@ -267,24 +289,25 @@ export function PlansPanel({ rows }: { rows: PlanRow[] }) {
             <Button size="sm" variant="outline" onClick={() => setEditing(r)}>
               Edit
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={pending || r.isDefault}
-              onClick={() => {
-                if (!window.confirm(`Delete plan "${r.name}"?`)) return;
-                start(async () => {
-                  const res = await deletePlan(r.id);
-                  if (!res.ok) toast.error(res.error);
-                  else {
-                    toast.success("Plan deleted");
-                    router.refresh();
-                  }
-                });
+            <ConfirmDialog
+              trigger={
+                <Button size="sm" variant="outline" disabled={r.isDefault}>
+                  Delete
+                </Button>
+              }
+              title={`Delete plan "${r.name}"?`}
+              description="A plan with subscribers cannot be deleted; deactivate it instead."
+              confirmLabel="Delete plan"
+              destructive
+              onConfirm={async () => {
+                const res = await deletePlan(r.id);
+                if (res.ok) {
+                  toast.success("Plan deleted");
+                  router.refresh();
+                }
+                return res;
               }}
-            >
-              Delete
-            </Button>
+            />
           </div>
         );
       },
@@ -292,14 +315,23 @@ export function PlansPanel({ rows }: { rows: PlanRow[] }) {
   ] as Columns<PlanRow>;
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setEditing("new")}>New plan</Button>
-      </div>
-      <DataTable columns={columns} data={rows} empty="No plans." />
+    <>
+      <PageHeader
+        title="Plans"
+        description={`Limits apply to each subscriber's workspace. Prices are in ${label}s per month.`}
+        actions={<Button onClick={() => setEditing("new")}>New plan</Button>}
+      />
+      <Section title="All plans" bodyClassName="p-0">
+        <DataTable
+          flush
+          columns={columns}
+          data={rows}
+          empty="No plans yet. Create one to assign to users."
+        />
+      </Section>
       {editing ? (
         <PlanDialog row={editing === "new" ? null : editing} onClose={() => setEditing(null)} />
       ) : null}
-    </div>
+    </>
   );
 }

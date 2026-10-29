@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { desc } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
 import { images } from "@agentbox/db/schema";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
+import { extractVersions } from "@/lib/admin/system";
 import { parseScanSummary, tailLog } from "@/lib/images";
 import { ImagesPanel, type ImageRow } from "./images-panel";
 
@@ -19,19 +20,15 @@ export default async function AdminImagesPage() {
     buildLog: tailLog(r.buildLog),
     overrideReason: r.overrideReason,
     scan: parseScanSummary(r.scanSummary),
+    versions: extractVersions(r.buildLog),
   }));
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Workspace images</CardTitle>
-        <CardDescription>
-          Exactly one image is active. A build pulls the latest tools, scans the result, and stays
-          unused until activated.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ImagesPanel rows={data} />
-      </CardContent>
-    </Card>
+    <>
+      <PageHeader
+        title="Workspace images"
+        description="Exactly one image is active. A build pulls the latest tools, scans the result, and stays unused until you activate it."
+      />
+      <ImagesPanel rows={data} />
+    </>
   );
 }

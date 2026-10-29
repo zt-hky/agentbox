@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -132,8 +133,13 @@ export function RequestsTable({
       header: "User",
       cell: (c) => (
         <div>
-          <div className="font-medium">{c.getValue()}</div>
-          <div className="text-xs text-muted-foreground">{c.row.original.email}</div>
+          <Link
+            href={`/admin/users/${c.row.original.userId}`}
+            className="font-medium hover:underline"
+          >
+            {c.getValue()}
+          </Link>
+          <div className="text-meta text-muted-foreground">{c.row.original.email}</div>
         </div>
       ),
     }),
@@ -145,13 +151,13 @@ export function RequestsTable({
       header: "Message",
       cell: (c) => (
         <span className="line-clamp-2 max-w-sm whitespace-normal text-muted-foreground">
-          {c.getValue() ?? "—"}
+          {c.getValue() ?? "No message"}
         </span>
       ),
     }),
     h.accessor("since", {
       header: "Since",
-      cell: (c) => c.getValue().slice(0, 16).replace("T", " "),
+      cell: (c) => `${c.getValue().slice(0, 16).replace("T", " ")} UTC`,
     }),
     h.display({
       id: "actions",
@@ -177,7 +183,12 @@ export function RequestsTable({
 
   return (
     <>
-      <DataTable columns={columns} data={rows} empty="Nobody is waiting for access." />
+      <DataTable
+        flush
+        columns={columns}
+        data={rows}
+        empty="Nobody is waiting for access. New sign-ins appear here."
+      />
       {dialog?.kind === "approve" ? (
         <GrantAccessDialog
           key={dialog.row.userId}
