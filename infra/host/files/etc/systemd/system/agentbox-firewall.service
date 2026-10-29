@@ -1,0 +1,13 @@
+[Unit]
+Description=AgentBox tenant egress firewall (nft table inet agentbox)
+After=network-pre.target
+Before=agentbox-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/agentbox/nftables.nft
+ExecStop=/usr/sbin/nft delete table inet agentbox
+
+[Install]
+WantedBy=multi-user.target

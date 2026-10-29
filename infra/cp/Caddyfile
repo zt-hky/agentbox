@@ -1,0 +1,42 @@
+# The plan's Caddyfile, with block bodies put on their own lines (Caddy rejects `{ directive` on
+# the opening line) and the base domain taken from $AGENTBOX_BASE_DOMAIN (cp.env).
+{
+	admin off
+	auto_https off
+	servers {
+		trusted_proxies static 127.0.0.1/32
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
+http://{$AGENTBOX_BASE_DOMAIN}:8480 {
+	bind 127.0.0.1
+	redir https://app.{$AGENTBOX_BASE_DOMAIN}{uri} 308
+}
+
+http://app.{$AGENTBOX_BASE_DOMAIN}:8480 {
+	bind 127.0.0.1
+	reverse_proxy 127.0.0.1:3000
+}
+
+http://*.{$AGENTBOX_BASE_DOMAIN}:8480 {
+	bind 127.0.0.1
+	request_header -X-Agentbox-Upstream
+	request_header -X-Gateway-Identity
+	handle /__abx/* {
+		reverse_proxy 127.0.0.1:3001
+	}
+	handle {
+		forward_auth 127.0.0.1:3001 {
+			uri /internal/authorize
+			copy_headers X-Agentbox-Upstream X-Gateway-Identity
+		}
+		request_header Cookie "(^|;\s*)__Host-abx_ws=[^;]*" ""
+		reverse_proxy {http.request.header.X-Agentbox-Upstream} {
+			header_up -X-Agentbox-Upstream
+			transport http {
+				keepalive 30s
+			}
+		}
+	}
+}

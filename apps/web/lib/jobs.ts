@@ -1,0 +1,27 @@
+import { jobs } from "@agentbox/db/schema";
+import type { DbLike } from "./db-types";
+
+export type StopReason =
+  "idle" | "max_awake" | "credits_exhausted" | "user" | "admin" | "suspended";
+
+/** Enqueue a workspace job; the partial unique index dedupes queued/running duplicates. */
+export async function enqueueWorkspaceJob(
+  database: DbLike,
+  workspaceId: string,
+  job:
+    | {
+        type:
+          | "provision_tenant"
+          | "start_workspace"
+          | "delete_tenant"
+          | "update_limits"
+          | "sync_github";
+      }
+    | { type: "stop_workspace"; reason: StopReason },
+): Promise<void> {
+  const payload = job.type === "stop_workspace" ? { reason: job.reason } : {};
+  await database
+    .insert(jobs)
+    .values({ type: job.type, workspaceId, payload })
+    .onConflictDoNothing();
+}

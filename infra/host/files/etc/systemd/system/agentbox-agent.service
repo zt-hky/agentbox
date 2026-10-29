@@ -1,0 +1,19 @@
+[Unit]
+Description=AgentBox host agent
+After=agentbox-storage.service agentbox-firewall.service
+Requires=agentbox-storage.service agentbox-firewall.service
+
+[Service]
+User=root
+ExecStart=/usr/bin/node /opt/agentbox/agent/agent.mjs
+EnvironmentFile=/etc/agentbox/agent.env
+Restart=always
+RestartSec=2
+RuntimeDirectory=agentbox
+RuntimeDirectoryMode=0711
+RuntimeDirectoryPreserve=yes
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

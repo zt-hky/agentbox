@@ -1,0 +1,216 @@
+# AgentBox workspace image. Build with --no-cache for production so every
+# "latest" below re-resolves:
+#   podman build --pull=always --no-cache --build-arg T3_REF=omp-overlay -t localhost/agentbox-workspace:<tag> .
+# Base digests were resolved with `podman pull` + `podman image inspect --format '{{.Digest}}'`.
+#
+# Every multi-step RUN is a `bash -euo pipefail` heredoc: SHELL is ignored by
+# podman's default OCI image format, so strict mode is requested per RUN.
+
+ARG NODE_BUILD_IMAGE=docker.io/library/node:26.12.1-bookworm@sha256:5feabe6cffeab0160ea9c8a29dd9f0bbf26b1028bbe40ed6dd80dbdfb5d99aa4
+ARG RUST_IMAGE=docker.io/library/rust:1-bookworm@sha256:0097cc72a939f26665ab11380e995aa9476735ec9516867e14ff5dfa8318b068
+ARG UBUNTU_IMAGE=docker.io/library/ubuntu:26.04@sha256:157dc3d6e4a3e4f2c68d12df9df9ed6e808b59af6d4c3757b432b4f519916725
+
+# ---------------------------------------------------------------------------
+# t3src: clone the k-code fork and apply every patches/*.patch.
+# Node 26.12.1 (not 24): the k-code root package.json pins engines.node to
+# 26.12.1 and the single-executable build refuses any other Node.
+# ---------------------------------------------------------------------------
+FROM ${NODE_BUILD_IMAGE} AS t3src
+ARG T3_REF=omp-overlay
+RUN bash -euo pipefail <<'SH'
+git clone --depth 1 --branch "${T3_REF}" https://github.com/zt-hky/k-code /src
+printf '{"ref":"%s","commit":"%s"}\n' "${T3_REF}" "$(git -C /src rev-parse HEAD)" > /t3-source.json
+SH
+COPY patches/ /patches/
+RUN bash -euo pipefail <<'SH'
+shopt -s nullglob
+for p in /patches/*.patch; do
+  echo "applying $p"
+  git -C /src apply "$p"
+done
+SH
+
+# ---------------------------------------------------------------------------
+# monitor: native resource monitor bundled with the CLI archive
+# (release-desktop.yml builds it the same way before the archive step).
+# ---------------------------------------------------------------------------
+FROM ${RUST_IMAGE} AS monitor
+COPY --from=t3src /src/native/resource-monitor /build/resource-monitor
+WORKDIR /build/resource-monitor
+RUN bash -euo pipefail <<'SH'
+cargo build --locked --release
+mkdir -p /out/linux-x64
+install -m 0755 target/release/t3-resource-monitor /out/linux-x64/t3-resource-monitor
+SH
+
+# ---------------------------------------------------------------------------
+# t3build: web client + server bundle + CLI single-executable archive -> /opt/t3
+# ---------------------------------------------------------------------------
+FROM t3src AS t3build
+WORKDIR /src
+ENV CI=1 \
+    PATH=/src/node_modules/.bin:/usr/local/bin:/usr/bin:/bin
+RUN bash -euo pipefail <<'SH'
+npm install -g "pnpm@$(node -p 'require("./package.json").packageManager.split("@")[1]')"
+pnpm install --frozen-lockfile
+node scripts/update-release-package-versions.ts 0.0.0-agentbox
+pnpm --filter @t3tools/web build
+# tsdown server bundle, then web client copied to apps/server/dist/client.
+node apps/server/scripts/cli.ts build --verbose
+node scripts/apply-web-brand-assets.ts production apps/server/dist/client
+node apps/server/scripts/cli.ts build-exe --verbose
+SH
+COPY --from=monitor /out /out/resource-monitor
+RUN bash -euo pipefail <<'SH'
+node scripts/build-cli-archive.ts --platform linux --arch x64 \
+  --version 0.0.0-agentbox --output-dir /out \
+  --resource-monitor-dir /out/resource-monitor
+mkdir -p /opt/t3
+tar -xzf /out/t3-0.0.0-agentbox-linux-x64.tar.gz -C /opt/t3 --strip-components=1 --no-same-owner
+test -x /opt/t3/t3
+SH
+
+# ---------------------------------------------------------------------------
+# final
+# ---------------------------------------------------------------------------
+FROM ${UBUNTU_IMAGE}
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    DISABLE_AUTOUPDATER=1
+
+RUN bash -euo pipefail <<'SH'
+apt-get update
+apt-get install -y --no-install-recommends \
+  ca-certificates curl git git-lfs openssh-client gnupg jq ripgrep fd-find less nano vim-tiny \
+  tmux procps psmisc lsof htop unzip zip xz-utils build-essential pkg-config \
+  python3 python3-venv python3-pip locales tzdata
+ln -s "$(command -v fdfind)" /usr/local/bin/fd
+locale-gen en_US.UTF-8
+rm -rf /var/lib/apt/lists/*
+SH
+
+# GitHub CLI from the official apt repository.
+RUN bash -euo pipefail <<'SH'
+install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+chmod a+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+  > /etc/apt/sources.list.d/github-cli.list
+apt-get update
+apt-get install -y --no-install-recommends gh
+rm -rf /var/lib/apt/lists/*
+SH
+
+# Node 24 LTS (latest v24.x), checksum-verified.
+RUN bash -euo pipefail <<'SH'
+cd /tmp
+curl -fsSLO https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt
+f="$(grep -o 'node-v[0-9.]*-linux-x64\.tar\.xz' SHASUMS256.txt | head -n1)"
+curl -fsSLO "https://nodejs.org/dist/latest-v24.x/${f}"
+grep " ${f}\$" SHASUMS256.txt | sha256sum -c -
+tar -xJf "${f}" -C /usr/local --strip-components=1 --no-same-owner \
+  --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md'
+rm -f "${f}" SHASUMS256.txt
+SH
+
+# uv, checksum-verified.
+RUN bash -euo pipefail <<'SH'
+cd /tmp
+u=https://github.com/astral-sh/uv/releases/latest/download
+curl -fsSLO "${u}/uv-x86_64-unknown-linux-gnu.tar.gz"
+curl -fsSLO "${u}/uv-x86_64-unknown-linux-gnu.tar.gz.sha256"
+sha256sum -c uv-x86_64-unknown-linux-gnu.tar.gz.sha256
+tar -xzf uv-x86_64-unknown-linux-gnu.tar.gz --strip-components=1 --no-same-owner \
+  -C /usr/local/bin uv-x86_64-unknown-linux-gnu/uv uv-x86_64-unknown-linux-gnu/uvx
+rm -f uv-x86_64-unknown-linux-gnu.tar.gz*
+SH
+
+# code-server (MIT, Open VSX) from the latest GitHub release.
+RUN bash -euo pipefail <<'SH'
+cd /tmp
+tag="$(curl -fsSL -o /dev/null -w '%{url_effective}' -L https://github.com/coder/code-server/releases/latest)"
+tag="${tag##*/}"
+curl -fsSLo code-server.deb "https://github.com/coder/code-server/releases/download/${tag}/code-server_${tag#v}_amd64.deb"
+apt-get update
+apt-get install -y --no-install-recommends ./code-server.deb
+rm -rf code-server.deb /var/lib/apt/lists/*
+SH
+
+# Codex CLI.
+RUN bash -euo pipefail <<'SH'
+npm install -g @openai/codex@latest
+npm cache clean --force
+SH
+
+# Claude Code (native installer; HOME=/opt/claude keeps it out of tenant homes).
+RUN bash -euo pipefail <<'SH'
+mkdir -p /opt/claude
+HOME=/opt/claude bash -c 'curl -fsSL https://claude.ai/install.sh | bash'
+chmod -R a+rX /opt/claude
+ln -s "$(readlink -f /opt/claude/.local/bin/claude)" /usr/local/bin/claude
+claude --version
+SH
+
+# Oh My Pi: prebuilt binary, falling back to the npm package.
+RUN bash -euo pipefail <<'SH'
+mkdir -p /opt/omp
+if HOME=/opt/omp sh -c 'curl -fsSL https://omp.sh/install | sh -s -- --binary' \
+    && install -m 0755 /opt/omp/.local/bin/omp /usr/local/bin/omp; then
+  echo "omp installed from binary release"
+else
+  echo "omp binary install failed; falling back to npm" >&2
+  npm install -g @oh-my-pi/pi-coding-agent@latest
+fi
+rm -rf /opt/omp
+npm cache clean --force
+omp --version
+SH
+
+COPY --from=t3build /opt/t3 /opt/t3
+COPY --from=t3build /t3-source.json /opt/agentbox/t3-source.json
+RUN ln -s /opt/t3/t3 /usr/local/bin/t3
+
+# Non-root user: ubuntu images ship an `ubuntu` user at uid 1000; replace it.
+RUN bash -euo pipefail <<'SH'
+userdel -r ubuntu 2>/dev/null || true
+groupdel ubuntu 2>/dev/null || true
+groupadd --gid 1000 coder
+useradd --uid 1000 --gid 1000 --home-dir /workspace/home --no-create-home --shell /bin/bash coder
+mkdir -p /workspace /tmp /var/tmp /run
+chmod 1777 /tmp /var/tmp
+touch /etc/hostname /etc/hosts /etc/resolv.conf
+ln -sf ../proc/self/mounts /etc/mtab
+SH
+
+COPY skel/ /opt/agentbox/skel/
+COPY t3-settings.json /opt/agentbox/t3-settings.json
+COPY bin/workspace-init /opt/agentbox/bin/workspace-init
+RUN bash -euo pipefail <<'SH'
+chmod 0755 /opt/agentbox/bin/workspace-init
+find /opt/agentbox/skel -type d -exec chmod 0755 {} +
+find /opt/agentbox/skel -type f -exec chmod 0644 {} +
+SH
+
+# Resolved tool versions, recorded for the admin image list.
+RUN bash -euo pipefail <<'SH'
+first() { "$@" 2>&1 | head -n1; }
+jq -n \
+  --slurpfile t3src /opt/agentbox/t3-source.json \
+  --arg t3 "$(first t3 --version)" \
+  --arg node "$(node --version)" \
+  --arg codeServer "$(code-server --version 2>&1 | grep -E '^[0-9]' | head -n1)" \
+  --arg codex "$(first codex --version)" \
+  --arg claude "$(first claude --version)" \
+  --arg omp "$(first omp --version)" \
+  --arg gh "$(first gh --version)" \
+  --arg uv "$(first uv --version)" \
+  '{t3: {ref: $t3src[0].ref, commit: $t3src[0].commit, version: $t3},
+    node: $node, "code-server": $codeServer, codex: $codex, claude: $claude,
+    omp: $omp, gh: $gh, uv: $uv}' > /opt/agentbox/versions.json
+rm /opt/agentbox/t3-source.json
+cat /opt/agentbox/versions.json
+SH
+
+WORKDIR /workspace
+USER 1000:1000
+ENV HOME=/workspace/home

@@ -1,0 +1,26 @@
+[Unit]
+Description=AgentBox worker (migrations, gateway-auth :3001, jobs, metering)
+After=agentbox-postgres.service
+Wants=agentbox-postgres.service
+
+[Container]
+ContainerName=agentbox-worker
+Image=localhost/agentbox-worker:latest
+Pod=agentbox-cp.pod
+EnvironmentFile=/var/lib/agentbox-cp/cp.env
+Secret=database_url,type=env,target=DATABASE_URL
+Secret=encryption_key,type=env,target=AGENTBOX_ENCRYPTION_KEY
+Secret=agent_token,type=env,target=AGENTBOX_AGENT_TOKEN
+# Directory mount (not the socket file) so an agent restart that recreates the socket is seen.
+Volume=/run/agentbox:/run/agentbox
+ReadOnly=true
+Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

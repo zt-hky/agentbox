@@ -1,0 +1,22 @@
+[Unit]
+Description=AgentBox Cloudflare tunnel
+After=agentbox-caddy.service
+# deploy.sh creates this marker only when the cloudflared_token secret exists; without it the unit
+# is skipped instead of crash-looping.
+ConditionPathExists=/var/lib/agentbox-cp/cloudflared.enabled
+
+[Container]
+ContainerName=agentbox-cloudflared
+Image=docker.io/cloudflare/cloudflared:2026.10.5@sha256:85b1ec2fdc5b311d309abd268f70eef071a595f011a38bf878938af25d084d17
+Network=host
+Secret=cloudflared_token,type=env,target=TUNNEL_TOKEN
+Exec=tunnel --no-autoupdate run
+DropCapability=ALL
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

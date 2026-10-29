@@ -1,0 +1,23 @@
+# AgentBox rootless sandbox profile (deny rules only, not audit-logged).
+abi <abi/4.0>,
+include <tunables/global>
+
+profile agentbox-sandbox flags=(attach_disconnected,mediate_deleted) {
+  include <abstractions/base>
+
+  network,
+  file,
+  capability,
+  signal peer=agentbox-sandbox,
+  ptrace peer=agentbox-sandbox,
+
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny userns,
+  deny @{PROC}/sys/** wklx,
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+  deny /sys/kernel/{security,debug}/** rwklx,
+  deny /sys/firmware/** rwklx,
+}

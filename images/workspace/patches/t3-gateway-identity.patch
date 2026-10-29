@@ -1,0 +1,430 @@
+diff --git a/apps/server/src/auth/GatewayIdentity.test.ts b/apps/server/src/auth/GatewayIdentity.test.ts
+new file mode 100644
+index 000000000..61180acfb
+--- /dev/null
++++ b/apps/server/src/auth/GatewayIdentity.test.ts
+@@ -0,0 +1,207 @@
++// @effect-diagnostics-next-line nodeBuiltinImport:off -- Tests sign HS256 tokens like the gateway does.
++import * as NodeCrypto from "node:crypto";
++import * as NodeServices from "@effect/platform-node/NodeServices";
++import { EnvironmentHttpApi } from "@t3tools/contracts";
++import { describe, expect, it } from "@effect/vitest";
++import * as Context from "effect/Context";
++import * as Crypto from "effect/Crypto";
++import * as Effect from "effect/Effect";
++import * as Layer from "effect/Layer";
++import * as Etag from "effect/http/Etag";
++import * as HttpPlatform from "effect/http/HttpPlatform";
++import * as HttpRouter from "effect/http/HttpRouter";
++import * as HttpApi from "effect/http-api/HttpApi";
++import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
++
++import * as ServerConfig from "../config.ts";
++import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
++import * as SqlitePersistence from "../persistence/Sqlite.ts";
++import * as EnvironmentAuth from "./EnvironmentAuth.ts";
++import * as ServerSecretStore from "./ServerSecretStore.ts";
++import * as AuthHttp from "./http.ts";
++import {
++  GATEWAY_IDENTITY_HEADER,
++  GatewayIdentity,
++  make as makeGatewayIdentity,
++  parseGatewayIdentitySettings,
++  verifyGatewayIdentityToken,
++  type GatewayIdentitySettings,
++} from "./GatewayIdentity.ts";
++
++// Shared with the AgentBox gateway's signer tests, so both sides agree byte for byte.
++const fixture = {
++  secret: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
++  audience: "alice",
++  nowSeconds: 1_767_225_600,
++  token:
++    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhZ2VudGJveCIsImF1ZCI6ImFsaWNlIiwic3ViIjoidXNlcl8xMjMiLCJlbWFpbCI6ImFsaWNlQGV4YW1wbGUuY29tIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjE3NjcyMjU3MjB9.W2Y8u0fjwDYkV6RQnUxRUTRi5xEw0JukHG1jw3BbLpU",
++};
++const settings = parseGatewayIdentitySettings(fixture) as GatewayIdentitySettings;
++const now = fixture.nowSeconds;
++
++function signGatewayToken(
++  claims: Record<string, unknown>,
++  input: { readonly header?: Record<string, unknown>; readonly secret?: Buffer } = {},
++): string {
++  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
++  const signingInput = `${encode(input.header ?? { alg: "HS256", typ: "JWT" })}.${encode({
++    iss: "agentbox",
++    aud: "alice",
++    sub: "user_123",
++    email: "alice@example.com",
++    iat: now,
++    exp: now + 120,
++    ...claims,
++  })}`;
++  const signature = NodeCrypto.createHmac("sha256", input.secret ?? settings.secret)
++    .update(signingInput)
++    .digest("base64url");
++  return `${signingInput}.${signature}`;
++}
++
++describe("verifyGatewayIdentityToken", () => {
++  const valid = { subject: "user_123", email: "alice@example.com" };
++  const [header, claims] = fixture.token.split(".");
++  const unsigned = `${Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url")}.${claims}.`;
++
++  it.each([
++    ["the gateway's signed fixture", fixture.token, valid],
++    ["a token still inside the clock skew", signGatewayToken({ exp: now - 30 }), valid],
++    [
++      "a tampered signature",
++      `${fixture.token.slice(0, -2)}${fixture.token.endsWith("AA") ? "AB" : "AA"}`,
++      undefined,
++    ],
++    [
++      "a token signed with another secret",
++      signGatewayToken({}, { secret: Buffer.alloc(32, 7) }),
++      undefined,
++    ],
++    ["a token for another workspace", signGatewayToken({ aud: "bob" }), undefined],
++    ["another issuer", signGatewayToken({ iss: "someone-else" }), undefined],
++    ["an expired token", signGatewayToken({ exp: now - 61 }), undefined],
++    ["a token issued in the future", signGatewayToken({ iat: now + 120 }), undefined],
++    ["an empty email", signGatewayToken({ email: "" }), undefined],
++    ["alg none", unsigned, undefined],
++    [
++      "alg none with the original signature",
++      `${unsigned}${fixture.token.split(".")[2]}`,
++      undefined,
++    ],
++    [
++      "a truncated signature",
++      `${header}.${claims}.${fixture.token.split(".")[2]?.slice(0, 10)}`,
++      undefined,
++    ],
++    ["a token with an extra part", `${fixture.token}.x`, undefined],
++  ])("%s", (_name, token, expected) => {
++    expect(verifyGatewayIdentityToken(token, settings, now)).toEqual(expected);
++  });
++});
++
++describe("parseGatewayIdentitySettings", () => {
++  it("requires a base64url secret of at least 32 bytes and an audience", () => {
++    expect(
++      parseGatewayIdentitySettings({ secret: ` ${fixture.secret} `, audience: " alice " }),
++    ).toEqual(settings);
++    expect(
++      parseGatewayIdentitySettings({
++        secret: Buffer.alloc(31).toString("base64url"),
++        audience: "alice",
++      }),
++    ).toBeUndefined();
++    expect(
++      parseGatewayIdentitySettings({ secret: "not base64!", audience: "alice" }),
++    ).toBeUndefined();
++    expect(parseGatewayIdentitySettings({ secret: fixture.secret, audience: " " })).toBeUndefined();
++  });
++});
++
++class AuthTestApi extends HttpApi.make("environment").add(EnvironmentHttpApi.groups.auth) {}
++
++describe("Gateway identity sign-in", () => {
++  const layerConfig = ServerConfig.layerTest(process.cwd(), { prefix: "t3-gateway-test-" });
++  const layerRoutes = HttpApiBuilder.layer(AuthTestApi).pipe(
++    Layer.provide(
++      AuthHttp.layer.pipe(
++        Layer.provide(Layer.succeed(GatewayIdentity, makeGatewayIdentity(settings))),
++      ),
++    ),
++    Layer.provide(AuthHttp.layerAuthenticatedAuth),
++    Layer.provideMerge(
++      EnvironmentAuth.layer.pipe(
++        Layer.provide(SqlitePersistence.layerMemory),
++        Layer.provide(ServerSecretStore.layer),
++        Layer.provide(ServerEnvironment.layerIdentity),
++        Layer.provide(layerConfig),
++      ),
++    ),
++    Layer.provide(layerConfig),
++    Layer.provideMerge(
++      HttpPlatform.layer.pipe(
++        Layer.provideMerge(NodeServices.layer),
++        Layer.provideMerge(Etag.layerWeak),
++      ),
++    ),
++    Layer.provide(NodeServices.layer),
++  );
++  // An old iat and far-future exp keep the token valid under both the test and the wall clock.
++  const validClaims = { iat: 0, exp: 4_000_000_000 };
++
++  it.effect("exchanges a verified gateway identity for a browser session cookie", () =>
++    Effect.gen(function* () {
++      const crypto = yield* Crypto.Crypto;
++      const requestContext = Context.make(Crypto.Crypto, crypto).pipe(
++        Context.add(
++          ServerSecretStore.ServerSecretStore,
++          ServerSecretStore.ServerSecretStore.of({
++            get: () => Effect.succeedNone,
++            set: () => Effect.void,
++            create: () => Effect.void,
++            getOrCreateRandom: () => Effect.die("Not used by these routes."),
++            remove: () => Effect.void,
++          }),
++        ),
++      );
++      return yield* Effect.acquireUseRelease(
++        Effect.sync(() => HttpRouter.toWebHandler(layerRoutes, { disableLogger: true })),
++        (environment) =>
++          Effect.tryPromise(async () => {
++            const session = (headers: Record<string, string>) =>
++              environment.handler(
++                new Request("http://127.0.0.1/api/auth/session", { headers }),
++                requestContext,
++              );
++
++            const rejected = await session({
++              [GATEWAY_IDENTITY_HEADER]: signGatewayToken({ ...validClaims, aud: "other" }),
++            });
++            expect(await rejected.json()).toMatchObject({ authenticated: false });
++            expect(rejected.headers.getSetCookie()).toEqual([]);
++
++            const accepted = await session({
++              [GATEWAY_IDENTITY_HEADER]: signGatewayToken(validClaims),
++            });
++            expect(await accepted.json()).toMatchObject({
++              authenticated: true,
++              sessionMethod: "browser-session-cookie",
++            });
++            const cookie = accepted.headers.getSetCookie()[0]?.split(";", 1)[0] ?? "";
++            expect(cookie).toMatch(/^t3_session_/);
++
++            // The cookie alone carries the session afterwards, like a paired browser.
++            const pairing = await environment.handler(
++              new Request("http://127.0.0.1/api/auth/pairing-token", {
++                method: "POST",
++                headers: { cookie, "content-type": "application/json" },
++                body: JSON.stringify({ scopes: ["orchestration:read"] }),
++              }),
++              requestContext,
++            );
++            expect(pairing.status).toBe(200);
++          }),
++        (environment) => Effect.promise(() => environment.dispose()),
++      );
++    }).pipe(Effect.provide(NodeServices.layer)),
++  );
++});
+diff --git a/apps/server/src/auth/GatewayIdentity.ts b/apps/server/src/auth/GatewayIdentity.ts
+new file mode 100644
+index 000000000..f9907366b
+--- /dev/null
++++ b/apps/server/src/auth/GatewayIdentity.ts
+@@ -0,0 +1,139 @@
++// @effect-diagnostics-next-line nodeBuiltinImport:off -- HMAC verification needs a constant-time compare.
++import * as NodeCrypto from "node:crypto";
++import * as Clock from "effect/Clock";
++import * as Config from "effect/Config";
++import * as Context from "effect/Context";
++import * as Effect from "effect/Effect";
++import * as Layer from "effect/Layer";
++import * as Option from "effect/Option";
++import * as Schema from "effect/Schema";
++import type * as HttpServerRequest from "effect/http/HttpServerRequest";
++
++/** A trusted gateway in front of this server signs every request it lets through. */
++export const GATEWAY_IDENTITY_HEADER = "x-gateway-identity";
++const GATEWAY_ISSUER = "agentbox";
++const CLOCK_SKEW_SECONDS = 60;
++const MIN_SECRET_BYTES = 32;
++
++export interface GatewayIdentitySettings {
++  /** HMAC-SHA256 key shared with the gateway, unique to this server. */
++  readonly secret: Buffer;
++  /** Expected `aud` claim, so a token minted for another server is refused. */
++  readonly audience: string;
++}
++
++export interface GatewayIdentityClaims {
++  readonly subject: string;
++  readonly email: string;
++}
++
++const decodeHeader = Schema.decodeUnknownOption(
++  Schema.fromJsonString(Schema.Struct({ alg: Schema.Literal("HS256") })),
++);
++const decodeClaims = Schema.decodeUnknownOption(
++  Schema.fromJsonString(
++    Schema.Struct({
++      iss: Schema.String,
++      aud: Schema.String,
++      sub: Schema.NonEmptyString,
++      email: Schema.NonEmptyString,
++      iat: Schema.Number,
++      exp: Schema.Number,
++    }),
++  ),
++);
++
++export function parseGatewayIdentitySettings(input: {
++  readonly secret: string;
++  readonly audience: string;
++}): GatewayIdentitySettings | undefined {
++  const encodedSecret = input.secret.trim();
++  const audience = input.audience.trim();
++  if (!/^[A-Za-z0-9_-]+$/u.test(encodedSecret) || audience.length === 0) return undefined;
++  const secret = Buffer.from(encodedSecret, "base64url");
++  if (secret.length < MIN_SECRET_BYTES) return undefined;
++  return { secret, audience };
++}
++
++/** Verifies a gateway token: HS256 signature, issuer, audience, and validity window. */
++export function verifyGatewayIdentityToken(
++  token: string,
++  settings: GatewayIdentitySettings,
++  nowSeconds: number,
++): GatewayIdentityClaims | undefined {
++  const [encodedHeader, encodedClaims, encodedSignature, ...rest] = token.split(".");
++  if (!encodedHeader || !encodedClaims || !encodedSignature || rest.length > 0) return undefined;
++  const header = decodeHeader(Buffer.from(encodedHeader, "base64url").toString("utf8"));
++  if (Option.isNone(header)) return undefined;
++  const expected = NodeCrypto.createHmac("sha256", settings.secret)
++    .update(`${encodedHeader}.${encodedClaims}`)
++    .digest();
++  const signature = Buffer.from(encodedSignature, "base64url");
++  if (signature.length !== expected.length || !NodeCrypto.timingSafeEqual(signature, expected)) {
++    return undefined;
++  }
++  const claims = decodeClaims(Buffer.from(encodedClaims, "base64url").toString("utf8"));
++  if (Option.isNone(claims)) return undefined;
++  const valid =
++    claims.value.iss === GATEWAY_ISSUER &&
++    claims.value.aud === settings.audience &&
++    claims.value.exp + CLOCK_SKEW_SECONDS > nowSeconds &&
++    claims.value.iat - CLOCK_SKEW_SECONDS <= nowSeconds;
++  return valid ? { subject: claims.value.sub, email: claims.value.email } : undefined;
++}
++
++export class GatewayIdentity extends Context.Service<
++  GatewayIdentity,
++  {
++    /** The verified gateway identity on this request, if any. Never fails. */
++    readonly identify: (
++      request: HttpServerRequest.HttpServerRequest,
++    ) => Effect.Effect<Option.Option<GatewayIdentityClaims>>;
++  }
++>()("t3/auth/GatewayIdentity") {}
++
++export const make = (settings: GatewayIdentitySettings) => {
++  const identify: GatewayIdentity["Service"]["identify"] = Effect.fn("GatewayIdentity.identify")(
++    function* (request) {
++      const token = request.headers[GATEWAY_IDENTITY_HEADER];
++      if (token === undefined || token.length === 0) return Option.none();
++      const nowSeconds = Math.floor((yield* Clock.currentTimeMillis) / 1_000);
++      const identity = verifyGatewayIdentityToken(token, settings, nowSeconds);
++      if (identity === undefined) {
++        yield* Effect.logWarning("rejected gateway identity token");
++        return Option.none();
++      }
++      return Option.some(identity);
++    },
++    Effect.catchCause((cause) =>
++      Effect.logWarning("Gateway identity verification failed", { cause }).pipe(
++        Effect.as(Option.none<GatewayIdentityClaims>()),
++      ),
++    ),
++  );
++  return GatewayIdentity.of({ identify });
++};
++
++const SettingsConfig = Config.all({
++  secret: Config.String("T3CODE_GATEWAY_IDENTITY_SECRET").pipe(Config.withDefault("")),
++  audience: Config.String("T3CODE_GATEWAY_IDENTITY_AUDIENCE").pipe(Config.withDefault("")),
++});
++
++/** Provides the service only when both environment variables are set and valid. */
++export const layer = Layer.unwrap(
++  Effect.gen(function* () {
++    const raw = yield* SettingsConfig;
++    const configured = [raw.secret, raw.audience].some((value) => value.trim().length > 0);
++    const settings = parseGatewayIdentitySettings(raw);
++    if (settings === undefined) {
++      if (configured) {
++        yield* Effect.logWarning(
++          "Gateway identity sign-in disabled: set T3CODE_GATEWAY_IDENTITY_SECRET (>=32 bytes base64url) and T3CODE_GATEWAY_IDENTITY_AUDIENCE",
++        );
++      }
++      return Layer.empty;
++    }
++    yield* Effect.logInfo("Gateway identity sign-in enabled", { audience: settings.audience });
++    return Layer.succeed(GatewayIdentity, make(settings));
++  }).pipe(Effect.orDie),
++);
+diff --git a/apps/server/src/auth/http.ts b/apps/server/src/auth/http.ts
+index 7014d00a2..aa1eb1ec9 100644
+--- a/apps/server/src/auth/http.ts
++++ b/apps/server/src/auth/http.ts
+@@ -33,6 +33,7 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
+ 
+ import * as EnvironmentAuth from "./EnvironmentAuth.ts";
+ import * as CloudflareAccess from "./CloudflareAccess.ts";
++import * as GatewayIdentity from "./GatewayIdentity.ts";
+ import * as SessionStore from "./SessionStore.ts";
+ import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/traceRelayRequest.ts";
+ import { deriveAuthClientMetadata } from "./utils.ts";
+@@ -266,6 +267,7 @@ export const layer = HttpApiBuilder.group(
+     const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+     const sessions = yield* SessionStore.SessionStore;
+     const cloudflareAccess = yield* Effect.serviceOption(CloudflareAccess.CloudflareAccess);
++    const gatewayIdentity = yield* Effect.serviceOption(GatewayIdentity.GatewayIdentity);
+ 
+     return handlers
+       .handle(
+@@ -309,6 +311,26 @@ export const layer = HttpApiBuilder.group(
+                 return { ...issued.response, auth: result.auth };
+               }
+             }
++            // Behind the AgentBox gateway, its signed per-request identity replaces pairing.
++            if (!result.authenticated && Option.isSome(gatewayIdentity)) {
++              const identity = yield* gatewayIdentity.value.identify(request);
++              if (Option.isSome(identity)) {
++                const issued = yield* serverAuth.createTrustedBrowserSession({
++                  subject: "gateway",
++                  requestMetadata: {
++                    ...deriveAuthClientMetadata({ request }),
++                    label: `AgentBox (${identity.value.email})`,
++                  },
++                });
++                yield* appendSessionCookie(
++                  sessions.cookieName,
++                  issued.sessionToken,
++                  issued.response.expiresAt,
++                );
++                yield* appendCredentialResponseHeaders;
++                return { ...issued.response, auth: result.auth };
++              }
++            }
+             return result;
+           },
+           Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
+diff --git a/apps/server/src/server.ts b/apps/server/src/server.ts
+index 5f9148113..2336a53ae 100644
+--- a/apps/server/src/server.ts
++++ b/apps/server/src/server.ts
+@@ -131,6 +131,7 @@ import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
+ import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
+ import * as AuthHttp from "./auth/http.ts";
+ import * as CloudflareAccess from "./auth/CloudflareAccess.ts";
++import * as GatewayIdentity from "./auth/GatewayIdentity.ts";
+ import * as ReplayMarkers from "./auth/replayMarkers.ts";
+ import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+ import * as CodexManagedTokenBroker from "./provider/CodexManagedTokenBroker.ts";
+@@ -719,7 +720,11 @@ const layerCommandReadiness = HttpRouter.middleware(
+ const layerMakeRoutes = Layer.mergeAll(
+   Layer.mergeAll(
+     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
+-      Layer.provide(AuthHttp.layer.pipe(Layer.provide(CloudflareAccess.layer))),
++      Layer.provide(
++        AuthHttp.layer.pipe(
++          Layer.provide(Layer.mergeAll(CloudflareAccess.layer, GatewayIdentity.layer)),
++        ),
++      ),
+       Layer.provide(McpOAuthHttp.layer.pipe(Layer.provide(McpOAuth.layer))),
+       Layer.provide(CloudHttp.layer),
+       Layer.provide(OrchestrationHttp.layer),

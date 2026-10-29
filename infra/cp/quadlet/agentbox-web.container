@@ -1,0 +1,26 @@
+[Unit]
+Description=AgentBox web (Next.js :3000)
+After=agentbox-postgres.service
+Wants=agentbox-postgres.service
+
+[Container]
+ContainerName=agentbox-web
+Image=localhost/agentbox-web:latest
+Pod=agentbox-cp.pod
+EnvironmentFile=/var/lib/agentbox-cp/cp.env
+# Optional OAuth ids/secrets and bootstrap admins; may be empty (web treats empty as unset).
+EnvironmentFile=/var/lib/agentbox-cp/optional.env
+Secret=database_url,type=env,target=DATABASE_URL
+Secret=better_auth_secret,type=env,target=BETTER_AUTH_SECRET
+Secret=encryption_key,type=env,target=AGENTBOX_ENCRYPTION_KEY
+ReadOnly=true
+Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

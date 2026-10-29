@@ -1,0 +1,15 @@
+[Unit]
+Description=AgentBox control-plane pod (postgres + web + worker)
+
+[Pod]
+PodName=agentbox-cp
+# Host loopback only. Postgres (5432) is deliberately not published: it is reachable only on the
+# pod's shared 127.0.0.1.
+PublishPort=127.0.0.1:3000:3000
+PublishPort=127.0.0.1:3001:3001
+# Host abx-cp <-> container uid/gid 1000 (user "node"). The worker needs this to open the 0600
+# abx-cp agent socket without running as container root.
+UserNS=keep-id:uid=1000,gid=1000
+
+[Install]
+WantedBy=default.target

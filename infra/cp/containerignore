@@ -1,0 +1,15 @@
+# Used as `podman build --ignorefile` (podman 5 supports it). deploy.sh also stages the context
+# with equivalent tar excludes because the tree under /home is not readable by abx-cp.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/coverage
+**/*.log
+**/.env
+**/.env.*
+.git
+.work
+docs
+images
+infra/host

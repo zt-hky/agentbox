@@ -1,0 +1,25 @@
+[Unit]
+Description=AgentBox PostgreSQL 18 (pod-internal)
+
+[Container]
+ContainerName=agentbox-postgres
+Image=docker.io/library/postgres:18@sha256:f4b419e350fd98d4a8429603295208976dea4c8fb8326d818d346d3e29f1db6f
+Pod=agentbox-cp.pod
+Environment=POSTGRES_USER=agentbox
+Environment=POSTGRES_DB=agentbox
+Secret=postgres_password,type=env,target=POSTGRES_PASSWORD
+# PostgreSQL 18 images keep PGDATA at /var/lib/postgresql/18/docker, so the volume mounts the parent.
+Volume=/var/lib/agentbox-cp/pg:/var/lib/postgresql:Z
+DropCapability=ALL
+AddCapability=CHOWN DAC_OVERRIDE FOWNER SETUID SETGID
+NoNewPrivileges=true
+HealthCmd=pg_isready -U agentbox -d agentbox
+HealthInterval=10s
+
+[Service]
+Restart=always
+RestartSec=3
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target

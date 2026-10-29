@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Container entrypoint for an AgentBox workspace: seeds $HOME on first run and
+# supervises T3 Code (:3773) and code-server (:8080), restarting either when it dies.
+# Restarting (not exiting) matters: a memory-cgroup OOM kill often picks the biggest
+# process, which is usually T3's node server rather than the user's runaway job.
+set -euo pipefail
+
+export HOME=/workspace/home
+export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
+AGENTBOX_DIR=/opt/agentbox
+
+mkdir -p "$HOME" /workspace/projects "$HOME/.t3/userdata" "$HOME/.local/share/code-server/extensions"
+
+if [[ ! -e "$HOME/.agentbox-seeded" ]]; then
+  cp -r --update=none "$AGENTBOX_DIR/skel/." "$HOME/"
+  if [[ ! -e "$HOME/.t3/userdata/settings.json" ]]; then
+    cp "$AGENTBOX_DIR/t3-settings.json" "$HOME/.t3/userdata/settings.json"
+  fi
+  : > "$HOME/.agentbox-seeded"
+fi
+
+start_t3() {
+  t3 serve --host 0.0.0.0 --port 3773 --base-dir "$HOME/.t3" --no-browser &
+  T3_PID=$!
+}
+
+start_code() {
+  code-server \
+    --bind-addr 0.0.0.0:8080 \
+    --auth none \
+    --disable-telemetry \
+    --disable-update-check \
+    --user-data-dir "$HOME/.local/share/code-server" \
+    --extensions-dir "$HOME/.local/share/code-server/extensions" \
+    /workspace/projects &
+  CODE_PID=$!
+}
+
+on_signal() {
+  trap - TERM INT
+  kill "$T3_PID" "$CODE_PID" 2>/dev/null || true
+  wait || true
+  exit 143
+}
+trap on_signal TERM INT
+
+start_t3
+start_code
+
+while true; do
+  wait -n || true
+  # Back off so a service that dies instantly cannot spin the CPU.
+  sleep 2
+  if ! kill -0 "$T3_PID" 2>/dev/null; then
+    echo "workspace-init: t3 exited, restarting" >&2
+    start_t3
+  fi
+  if ! kill -0 "$CODE_PID" 2>/dev/null; then
+    echo "workspace-init: code-server exited, restarting" >&2
+    start_code
+  fi
+done

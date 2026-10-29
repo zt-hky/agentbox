@@ -1,0 +1,406 @@
+import { and, asc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { z } from "zod";
+import { decrypt } from "@agentbox/core";
+import {
+  githubConnections,
+  images,
+  jobs,
+  plans,
+  subscriptions,
+  workspaceSessions,
+  workspaces,
+} from "@agentbox/db/schema";
+import { AgentError } from "./agent-client.ts";
+import { errMessage } from "./log.ts";
+import { addEvent } from "./queue.ts";
+import type { Ctx } from "./types.ts";
+
+export const MAX_ATTEMPTS = 3;
+export const MAX_CONCURRENT = 4;
+export const POLL_MS = 1000;
+export const BUILD_LOG_POLL_MS = 5000;
+const ROOTFS_DIR = "/srv/agentbox/rootfs";
+
+export type JobRow = typeof jobs.$inferSelect;
+type WorkspaceRow = typeof workspaces.$inferSelect;
+
+/** Failing this way skips the retry budget (e.g. a 2 h image build must not rerun 3 times). */
+export class NonRetryableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NonRetryableError";
+  }
+}
+
+type Handler = (ctx: Ctx, job: JobRow) => Promise<void>;
+
+const stopPayloadSchema = z.object({
+  reason: z.enum(["idle", "max_awake", "credits_exhausted", "user", "admin", "suspended"]),
+});
+const buildPayloadSchema = z.object({ imageRowId: z.uuid(), t3Ref: z.string().min(1) });
+const deleteImagePayloadSchema = z.object({ imageRowId: z.uuid() });
+
+async function loadTenant(ctx: Ctx, job: JobRow) {
+  if (!job.workspaceId) throw new NonRetryableError(`${job.type} job has no workspaceId`);
+  const [row] = await ctx.db
+    .select({ ws: workspaces, plan: plans })
+    .from(workspaces)
+    .leftJoin(subscriptions, eq(subscriptions.userId, workspaces.userId))
+    .leftJoin(plans, eq(plans.id, subscriptions.planId))
+    .where(eq(workspaces.id, job.workspaceId));
+  if (!row) throw new NonRetryableError(`workspace ${job.workspaceId} not found`);
+  return row;
+}
+
+function limitsOf(plan: typeof plans.$inferSelect | null, slug: string) {
+  if (!plan) throw new Error(`workspace ${slug} has no subscription plan`);
+  return {
+    diskGb: plan.diskLimitGb,
+    limits: {
+      cpus: Number(plan.cpuLimit),
+      memoryMb: plan.memoryLimitMb,
+      pidsLimit: plan.pidsLimit,
+    },
+  };
+}
+
+/** Reconcile the workspace's GitHub credentials with the user's github_connections row. */
+export async function reconcileGithub(ctx: Ctx, ws: WorkspaceRow): Promise<void> {
+  if (ws.status !== "running") {
+    await ctx.db
+      .update(workspaces)
+      .set({ githubSyncPending: true })
+      .where(eq(workspaces.id, ws.id));
+    return;
+  }
+  const [conn] = await ctx.db
+    .select()
+    .from(githubConnections)
+    .where(eq(githubConnections.userId, ws.userId));
+  try {
+    if (conn) {
+      await ctx.agent.githubConnect(ws.slug, {
+        token: decrypt(conn.tokenEnc, ctx.config.encryptionKey),
+        login: conn.login,
+        email: `${conn.githubId}+${conn.login}@users.noreply.github.com`,
+      });
+    } else {
+      await ctx.agent.githubDisconnect(ws.slug);
+    }
+  } catch (e) {
+    // 409: the container is not running (anymore); the next start reconciles.
+    if (e instanceof AgentError && e.status === 409) {
+      await ctx.db
+        .update(workspaces)
+        .set({ githubSyncPending: true })
+        .where(eq(workspaces.id, ws.id));
+      return;
+    }
+    throw e;
+  }
+  await ctx.db.update(workspaces).set({ githubSyncPending: false }).where(eq(workspaces.id, ws.id));
+}
+
+async function tailBuildLog(ctx: Ctx, jobId: string, imageRowId: string): Promise<string | null> {
+  try {
+    const log = await ctx.agent.buildLog(jobId, 200);
+    await ctx.db.update(images).set({ buildLog: log }).where(eq(images.id, imageRowId));
+    return log;
+  } catch {
+    return null; // log may not exist yet; never fail the build because of tailing
+  }
+}
+
+export const handlers: Record<JobRow["type"], Handler> = {
+  async provision_tenant(ctx, job) {
+    const { ws, plan } = await loadTenant(ctx, job);
+    if (ws.status === "deleting" || ws.status === "deleted") return;
+    const { diskGb, limits } = limitsOf(plan, ws.slug);
+    await ctx.agent.createTenant({ ws: ws.slug, slot: ws.slot, diskGb, limits });
+    await ctx.db
+      .update(workspaces)
+      .set({ status: "sleeping" })
+      .where(and(eq(workspaces.id, ws.id), eq(workspaces.status, "provisioning")));
+  },
+
+  async start_workspace(ctx, job) {
+    const { ws, plan } = await loadTenant(ctx, job);
+    if (ws.status === "deleting" || ws.status === "deleted" || ws.status === "provisioning") return;
+    if (ws.status === "running") return;
+    await ctx.db.update(workspaces).set({ status: "starting" }).where(eq(workspaces.id, ws.id));
+    try {
+      const [image] = await ctx.db.select().from(images).where(eq(images.status, "active"));
+      if (!image?.imageId)
+        throw new Error("no active workspace image; activate one in the admin console");
+      const { limits } = limitsOf(plan, ws.slug);
+      await ctx.agent.startWorkspace(ws.slug, {
+        imageId: image.imageId,
+        slot: ws.slot,
+        limits,
+        env: {
+          T3CODE_GATEWAY_IDENTITY_SECRET: decrypt(ws.identitySecretEnc, ctx.config.encryptionKey),
+          T3CODE_GATEWAY_IDENTITY_AUDIENCE: ws.slug,
+        },
+      });
+      const now = ctx.now();
+      await ctx.db
+        .update(workspaces)
+        .set({
+          status: "running",
+          imageId: image.imageId,
+          awakeSince: now,
+          lastActivityAt: now,
+          lastCpuUsec: 0n,
+          startFailures: 0,
+        })
+        .where(eq(workspaces.id, ws.id));
+      await addEvent(ctx.db, ws.id, "started", { imageId: image.imageId });
+    } catch (e) {
+      await ctx.db
+        .update(workspaces)
+        .set({ status: "error", startFailures: sql`${workspaces.startFailures} + 1` })
+        .where(eq(workspaces.id, ws.id));
+      await addEvent(ctx.db, ws.id, "start_failed", { error: errMessage(e) });
+      throw e;
+    }
+    if (ws.githubSyncPending) {
+      const [fresh] = await ctx.db.select().from(workspaces).where(eq(workspaces.id, ws.id));
+      if (fresh) {
+        try {
+          await reconcileGithub(ctx, fresh);
+        } catch (e) {
+          ctx.log.warn("github reconcile after start failed", {
+            ws: ws.slug,
+            error: errMessage(e),
+          });
+        }
+      }
+    }
+  },
+
+  async stop_workspace(ctx, job) {
+    const { reason } = stopPayloadSchema.parse(job.payload);
+    const { ws } = await loadTenant(ctx, job);
+    if (["sleeping", "provisioning", "deleting", "deleted"].includes(ws.status)) return;
+    await ctx.db.update(workspaces).set({ status: "stopping" }).where(eq(workspaces.id, ws.id));
+    try {
+      await ctx.agent.stopWorkspace(ws.slug);
+    } catch (e) {
+      await ctx.db.update(workspaces).set({ status: "error" }).where(eq(workspaces.id, ws.id));
+      throw e;
+    }
+    await ctx.db
+      .update(workspaces)
+      .set({ status: "sleeping", awakeSince: null })
+      .where(eq(workspaces.id, ws.id));
+    await addEvent(ctx.db, ws.id, "stopped", { reason });
+  },
+
+  async delete_tenant(ctx, job) {
+    const { ws } = await loadTenant(ctx, job);
+    if (ws.status === "deleted") return;
+    await ctx.db.update(workspaces).set({ status: "deleting" }).where(eq(workspaces.id, ws.id));
+    await ctx.agent.deleteTenant(ws.slug);
+    await ctx.db
+      .update(workspaces)
+      .set({ status: "deleted", awakeSince: null })
+      .where(eq(workspaces.id, ws.id));
+    await ctx.db
+      .update(workspaceSessions)
+      .set({ revokedAt: ctx.now() })
+      .where(eq(workspaceSessions.workspaceId, ws.id));
+  },
+
+  async sync_github(ctx, job) {
+    const { ws } = await loadTenant(ctx, job);
+    if (ws.status === "deleted" || ws.status === "deleting") return;
+    await reconcileGithub(ctx, ws);
+  },
+
+  async update_limits(ctx, job) {
+    const { ws, plan } = await loadTenant(ctx, job);
+    if (ws.status === "deleted" || ws.status === "deleting" || ws.status === "provisioning") return;
+    await ctx.agent.updateLimits(ws.slug, limitsOf(plan, ws.slug));
+  },
+
+  async build_image(ctx, job) {
+    const { imageRowId, t3Ref } = buildPayloadSchema.parse(job.payload);
+    const timer = setInterval(() => void tailBuildLog(ctx, job.id, imageRowId), BUILD_LOG_POLL_MS);
+    try {
+      const out = await ctx.agent.buildImage({ jobId: job.id, t3Ref });
+      const log = await tailBuildLog(ctx, job.id, imageRowId);
+      await ctx.db
+        .update(images)
+        .set({
+          imageId: out.imageId,
+          rootfsPath: `${ROOTFS_DIR}/${out.imageId}`,
+          scanSummary: out.scanSummary,
+          status: "ready",
+          ...(log === null ? {} : { buildLog: log }),
+        })
+        .where(eq(images.id, imageRowId));
+    } catch (e) {
+      const log = await tailBuildLog(ctx, job.id, imageRowId);
+      await ctx.db
+        .update(images)
+        .set({ status: "failed", buildLog: log ?? errMessage(e) })
+        .where(eq(images.id, imageRowId));
+      throw new NonRetryableError(errMessage(e));
+    } finally {
+      clearInterval(timer);
+    }
+  },
+
+  async delete_image(ctx, job) {
+    const { imageRowId } = deleteImagePayloadSchema.parse(job.payload);
+    const [row] = await ctx.db.select().from(images).where(eq(images.id, imageRowId));
+    if (!row) return;
+    if (row.status === "active") throw new NonRetryableError("refusing to delete the active image");
+    if (row.imageId) await ctx.agent.deleteImage(row.imageId);
+    await ctx.db.update(images).set({ status: "retired" }).where(eq(images.id, imageRowId));
+  },
+};
+
+export class JobRunner {
+  private readonly inflight = new Set<Promise<void>>();
+  private timer: NodeJS.Timeout | null = null;
+  private stopping = false;
+
+  constructor(
+    private readonly ctx: Ctx,
+    private readonly opts: { maxConcurrent?: number; pollMs?: number } = {},
+  ) {}
+
+  /** Jobs left `running` by a crashed worker would block their dedupe slot forever. */
+  async recoverRunning(): Promise<number> {
+    const rows = await this.ctx.db
+      .update(jobs)
+      .set({ status: "queued", runAfter: this.ctx.now() })
+      .where(eq(jobs.status, "running"))
+      .returning({ id: jobs.id });
+    return rows.length;
+  }
+
+  /** Claim up to `limit` due jobs in one tx, at most one per workspace and none for a busy workspace. */
+  async claim(limit: number): Promise<JobRow[]> {
+    if (limit <= 0) return [];
+    return this.ctx.db.transaction(async (tx) => {
+      const candidates = await tx
+        .select()
+        .from(jobs)
+        .where(and(eq(jobs.status, "queued"), lte(jobs.runAfter, this.ctx.now())))
+        .orderBy(asc(jobs.runAfter), asc(jobs.createdAt))
+        .limit(limit * 8)
+        .for("update", { skipLocked: true });
+      if (candidates.length === 0) return [];
+      const busy = new Set(
+        (
+          await tx
+            .select({ w: jobs.workspaceId })
+            .from(jobs)
+            .where(and(eq(jobs.status, "running"), isNotNull(jobs.workspaceId)))
+        ).map((r) => r.w),
+      );
+      const picked: JobRow[] = [];
+      for (const c of candidates) {
+        if (picked.length >= limit) break;
+        if (c.workspaceId) {
+          if (busy.has(c.workspaceId)) continue;
+          busy.add(c.workspaceId);
+        }
+        picked.push(c);
+      }
+      if (picked.length === 0) return [];
+      return tx
+        .update(jobs)
+        .set({ status: "running", attempts: sql`${jobs.attempts} + 1` })
+        .where(
+          inArray(
+            jobs.id,
+            picked.map((p) => p.id),
+          ),
+        )
+        .returning();
+    });
+  }
+
+  private async execute(job: JobRow): Promise<void> {
+    const { ctx } = this;
+    try {
+      await handlers[job.type](ctx, job);
+      await ctx.db.update(jobs).set({ status: "done", lastError: null }).where(eq(jobs.id, job.id));
+    } catch (e) {
+      const message = errMessage(e);
+      const final = e instanceof NonRetryableError || job.attempts >= MAX_ATTEMPTS;
+      ctx.log.warn("job failed", {
+        job: job.id,
+        type: job.type,
+        attempts: job.attempts,
+        final,
+        error: message,
+      });
+      try {
+        await ctx.db
+          .update(jobs)
+          .set(
+            final
+              ? { status: "failed", lastError: message }
+              : {
+                  status: "queued",
+                  lastError: message,
+                  runAfter: new Date(ctx.now().getTime() + 2 ** job.attempts * 5000),
+                },
+          )
+          .where(eq(jobs.id, job.id));
+      } catch (e2) {
+        ctx.log.error("could not record job failure", { job: job.id, error: errMessage(e2) });
+      }
+    }
+  }
+
+  /** Claim what fits and start running it; resolves once the jobs are launched (not finished). */
+  async tick(): Promise<number> {
+    if (this.stopping) return 0;
+    const claimed = await this.claim(
+      (this.opts.maxConcurrent ?? MAX_CONCURRENT) - this.inflight.size,
+    );
+    for (const job of claimed) {
+      const p: Promise<void> = this.execute(job).finally(() => this.inflight.delete(p));
+      this.inflight.add(p);
+    }
+    return claimed.length;
+  }
+
+  /** Resolves when every launched job has finished. */
+  async idle(): Promise<void> {
+    while (this.inflight.size > 0) await Promise.allSettled([...this.inflight]);
+  }
+
+  start(): void {
+    const loop = () => {
+      this.timer = null;
+      if (this.stopping) return;
+      this.tick()
+        .catch((e) => this.ctx.log.error("job poll failed", { error: errMessage(e) }))
+        .finally(() => {
+          if (!this.stopping) this.timer = setTimeout(loop, this.opts.pollMs ?? POLL_MS);
+        });
+    };
+    loop();
+  }
+
+  /** Stop claiming; wait up to `graceMs` for in-flight jobs. Returns how many were still running. */
+  async stop(graceMs: number): Promise<number> {
+    this.stopping = true;
+    if (this.timer) clearTimeout(this.timer);
+    let t: NodeJS.Timeout | undefined;
+    await Promise.race([
+      this.idle(),
+      new Promise<void>((r) => {
+        t = setTimeout(r, graceMs);
+      }),
+    ]);
+    clearTimeout(t);
+    return this.inflight.size;
+  }
+}

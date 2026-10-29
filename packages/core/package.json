@@ -1,0 +1,24 @@
+{
+  "name": "@agentbox/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./hosts": "./src/hosts.ts",
+    "./slots": "./src/slots.ts",
+    "./identity": "./src/identity.ts",
+    "./tokens": "./src/tokens.ts",
+    "./billing": "./src/billing.ts",
+    "./idle": "./src/idle.ts",
+    "./agent-api": "./src/agent-api.ts",
+    "./settings": "./src/settings.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  }
+}

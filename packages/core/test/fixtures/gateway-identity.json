@@ -1,0 +1,8 @@
+{
+  "secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "audience": "alice",
+  "sub": "user_123",
+  "email": "alice@example.com",
+  "nowSeconds": 1767225600,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhZ2VudGJveCIsImF1ZCI6ImFsaWNlIiwic3ViIjoidXNlcl8xMjMiLCJlbWFpbCI6ImFsaWNlQGV4YW1wbGUuY29tIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjE3NjcyMjU3MjB9.W2Y8u0fjwDYkV6RQnUxRUTRi5xEw0JukHG1jw3BbLpU"
+}

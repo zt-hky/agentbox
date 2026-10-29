@@ -1,0 +1,13 @@
+[Unit]
+Description=AgentBox tenant XFS storage (loop + uquota)
+Before=agentbox-agent.service
+RequiresMountsFor=/var/lib/agentbox
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/agentbox/storage-up.sh
+ExecStop=/usr/local/lib/agentbox/storage-down.sh
+
+[Install]
+WantedBy=multi-user.target

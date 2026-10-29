@@ -1,0 +1,22 @@
+# AgentBox web (Next.js standalone). Build context: the repo root (staged by deploy.sh).
+#   podman build -f infra/cp/Containerfile.web -t localhost/agentbox-web:latest <repo root>
+# Builder: node 24 (apps/web engines accept >=22.16) with pnpm 12.14.0 from corepack.
+
+FROM docker.io/library/node:24-bookworm@sha256:8544b46b91d1a8c8bf8fc0d53ae9f276ed07d0ffa9098dc4a9c2f627363a13a0 AS build
+ENV CI=1 NEXT_TELEMETRY_DISABLED=1 COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack prepare pnpm@12.14.0 --activate
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --filter '@agentbox/web...'
+RUN pnpm --filter @agentbox/web build
+
+FROM docker.io/library/node:24-bookworm-slim@sha256:a43f7fc3e52e87d12a905f46eea0275def84ca8f2981a5b53fed44d7fb398ee0
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
+WORKDIR /app
+# outputFileTracingRoot is the repo root, so the standalone server lives at apps/web/server.js.
+COPY --from=build --chown=node:node /src/apps/web/.next/standalone ./
+COPY --from=build --chown=node:node /src/apps/web/.next/static ./apps/web/.next/static
+USER node
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]
