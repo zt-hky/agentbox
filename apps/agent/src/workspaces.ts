@@ -1,6 +1,8 @@
 import { stat } from "node:fs/promises";
 import type {
   GithubConnectRequest,
+  WorkspaceLogResponse,
+  WorkspaceTopResponse,
   StartWorkspaceRequest,
   StartWorkspaceResponse,
 } from "@agentbox/core/agent-api";
@@ -16,6 +18,8 @@ import { CONTAINER_NAME, HEALTH_TIMEOUT_MS, STOP_TIMEOUT_SEC } from "./config.ts
 import { HttpError } from "./errors.ts";
 import { runAs } from "./exec.ts";
 import { logEvent } from "./log.ts";
+import { mergeLogStreams, parsePodmanTime, parsePodmanTop } from "./diagnostics.ts";
+import { ensurePodmanSocket } from "./monitor.ts";
 import { isPlainArg, isSafeCgroupPath, slotOfUid } from "./safe.ts";
 import { registry, withLock } from "./state.ts";
 import { requireTenant, startUserManager, stopUserManager, userManagerUp } from "./tenants.ts";
@@ -33,18 +37,29 @@ export async function containerRunning(ws: string, uid: number): Promise<boolean
 export interface InspectInfo {
   cgroupPath: string;
   imageId: string | null;
+  startedAt: string | null;
 }
 
 export async function inspectContainer(ws: string): Promise<InspectInfo> {
   const r = await runAs(
     tenantUser(ws),
-    ["podman", "inspect", "--format", "{{.State.CgroupPath}}\t{{.Rootfs}}", CONTAINER_NAME],
+    [
+      "podman",
+      "inspect",
+      "--format",
+      "{{.State.CgroupPath}}\t{{.Rootfs}}\t{{.State.StartedAt}}",
+      CONTAINER_NAME,
+    ],
     { timeoutMs: 30_000 },
   );
-  const [cg = "", rootfs = ""] = r.stdout.trim().split("\t");
+  const [cg = "", rootfs = "", started = ""] = r.stdout.trim().split("\t");
   if (!isSafeCgroupPath(cg)) throw new HttpError(500, "podman reported no usable cgroup path");
   const m = /\/([0-9a-f]{64})\/?$/.exec(rootfs);
-  return { cgroupPath: cg, imageId: m ? (m[1] as string) : null };
+  return {
+    cgroupPath: cg,
+    imageId: m ? (m[1] as string) : null,
+    startedAt: parsePodmanTime(started),
+  };
 }
 
 async function waitHealthy(ws: string, uid: number, slot: number): Promise<void> {
@@ -118,7 +133,7 @@ export function startWorkspace(
       throw e;
     }
     const info = await inspectContainer(ws);
-    const startedAt = new Date().toISOString();
+    const startedAt = info.startedAt ?? new Date().toISOString();
     registry.set(ws, {
       ws,
       uid: tenant.uid,
@@ -127,6 +142,7 @@ export function startWorkspace(
       imageId: req.imageId,
       startedAt,
     });
+    await ensurePodmanSocket(user);
     logEvent({ ws, event: "started", imageId: req.imageId, durationMs: Date.now() - t0 });
     return { cgroupPath: info.cgroupPath, startedAt };
   });
@@ -217,4 +233,31 @@ export function githubDisconnect(ws: string): Promise<void> {
     }
     logEvent({ ws, event: "github_disconnected" });
   });
+}
+
+const MAX_LOG_BYTES = 512 * 1024;
+
+/** `podman logs` of the workspace container, as the tenant (diagnostics; never cached). */
+export async function workspaceLogs(ws: string, tail: number): Promise<WorkspaceLogResponse> {
+  await requireRunning(ws);
+  const r = await runAs(
+    tenantUser(ws),
+    ["podman", "logs", "-t", "--tail", String(tail), CONTAINER_NAME],
+    { timeoutMs: 30_000, maxBytes: 32 * 1024 * 1024 },
+  );
+  const log = mergeLogStreams(r.stdout, r.stderr, tail);
+  return { log: log.length > MAX_LOG_BYTES ? log.slice(-MAX_LOG_BYTES) : log };
+}
+
+/** `podman top` of the workspace container, as the tenant. */
+export async function workspaceTop(ws: string): Promise<WorkspaceTopResponse> {
+  await requireRunning(ws);
+  const user = tenantUser(ws);
+  const [top, info] = await Promise.all([
+    runAs(user, ["podman", "top", CONTAINER_NAME, "-eo", "pid,user,pcpu,pmem,etime,args"], {
+      timeoutMs: 30_000,
+    }),
+    inspectContainer(ws),
+  ]);
+  return { startedAt: info.startedAt, processes: parsePodmanTop(top.stdout) };
 }

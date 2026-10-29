@@ -1,0 +1,7 @@
+    PID USER     %CPU %MEM     ELAPSED COMMAND
+      1 kyle      0.0  0.0       02:22 /run/podman-init -- /opt/agentbox/bin/workspace-init
+      2 kyle      0.0  0.0       02:22 bash /opt/agentbox/bin/workspace-init
+      5 kyle      0.1  0.2       02:22 /usr/lib/code-server/lib/node /usr/lib/code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry --disable-update-check --user-data-dir /workspace/home/.local/share/code-server --extensions-dir /workspace/home/.local/share/code-server/extensions /workspace/projects
+     30 kyle      0.4  0.3       02:22 /usr/lib/code-server/lib/node /usr/lib/code-server/out/node/entry
+    201 kyle     29.3  1.2       00:07 t3 serve --host 0.0.0.0 --port 3773 --base-dir /workspace/home/.t3 --no-browser
+    221 kyle      0.0  0.0       00:06 /opt/t3/resource-monitor/linux-x64/t3-resource-monitor

@@ -221,6 +221,106 @@ describe("job handlers", () => {
     expect((await ws(w.workspaceId)).status).toBe("sleeping");
   });
 
+  it("restart_workspace stops then starts and records stopped(restart) before started", async () => {
+    await activeImage();
+    const w = await seedWorld(t.db, { workspace: { awakeSince: clock.now() } });
+    const id = await enqueue("restart_workspace", w.workspaceId);
+    await runAll();
+    expect(await ws(w.workspaceId)).toMatchObject({ status: "running", imageId: IMAGE_ID });
+    const types = (await events(w.workspaceId))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((e) => [e.type, e.details]);
+    expect(types).toEqual([
+      ["stopped", { reason: "restart" }],
+      ["started", { imageId: IMAGE_ID }],
+    ]);
+    const order = agent.calls.map((c) => `${c.method} ${c.path}`);
+    expect(order.indexOf("POST /v1/workspaces/alice/stop")).toBeLessThan(
+      order.indexOf("POST /v1/workspaces/alice/start"),
+    );
+    expect(await job(id)).toMatchObject({ status: "done" });
+  });
+
+  it("restart_workspace on a sleeping workspace only starts it", async () => {
+    await activeImage();
+    const w = await seedWorld(t.db, { status: "sleeping" });
+    await enqueue("restart_workspace", w.workspaceId);
+    await runAll();
+    expect(agent.callsTo("POST /v1/workspaces/alice/stop")).toHaveLength(0);
+    expect((await ws(w.workspaceId)).status).toBe("running");
+  });
+
+  it("fetch_logs asks the agent for the payload's tail and stores {log, fetchedAt}", async () => {
+    const w = await seedWorld(t.db);
+    agent.on("GET /v1/workspaces/alice/logs", { json: { log: "line1\nline2" } });
+    const id = await enqueue("fetch_logs", w.workspaceId, { tail: 500 });
+    await runAll();
+    expect(agent.callsTo("GET /v1/workspaces/alice/logs")[0]?.query).toBe("?tail=500");
+    expect(await job(id)).toMatchObject({
+      status: "done",
+      result: { log: "line1\nline2", fetchedAt: clock.now().toISOString() },
+      finishedAt: clock.now(),
+    });
+  });
+
+  it("inspect_workspace stores the process list", async () => {
+    const w = await seedWorld(t.db);
+    const processes = [
+      { pid: 1, user: "kyle", cpu: 0, mem: 0.1, elapsed: "00:46", command: "init" },
+    ];
+    agent.on("GET /v1/workspaces/alice/top", {
+      json: { startedAt: "2026-03-10T11:00:00.000Z", processes },
+    });
+    const id = await enqueue("inspect_workspace", w.workspaceId);
+    await runAll();
+    expect((await job(id)).result).toEqual({
+      running: true,
+      startedAt: "2026-03-10T11:00:00.000Z",
+      processes,
+      fetchedAt: clock.now().toISOString(),
+    });
+  });
+
+  it("diagnostic jobs fail fast without retry when the workspace is not running", async () => {
+    const w = await seedWorld(t.db, { status: "sleeping" });
+    const id = await enqueue("inspect_workspace", w.workspaceId);
+    await runAll();
+    expect(await job(id)).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      lastError: expect.stringMatching(/not running/),
+      finishedAt: clock.now(),
+    });
+    expect(agent.callsTo("GET /v1/workspaces/alice/top")).toHaveLength(0);
+  });
+
+  it("diagnostic jobs are not retried when the agent reports 409 or fails", async () => {
+    const w = await seedWorld(t.db);
+    agent.on("GET /v1/workspaces/alice/logs", {
+      status: 409,
+      json: { error: "workspace alice is not running" },
+    });
+    const id = await enqueue("fetch_logs", w.workspaceId, { tail: 100 });
+    await runAll();
+    expect(await job(id)).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      lastError: "workspace alice is not running",
+      result: null,
+    });
+  });
+
+  it("sets finishedAt on done and final failure, not on a requeue", async () => {
+    const w = await seedWorld(t.db, { status: "sleeping" });
+    const failing = await enqueue("start_workspace", w.workspaceId); // no active image
+    await runAll();
+    expect((await job(failing)).finishedAt).toBeNull();
+    const w2 = await seedWorld(t.db, { slug: "bobby", slot: 2 });
+    const ok = await enqueue("update_limits", w2.workspaceId);
+    await runAll();
+    expect((await job(ok)).finishedAt).toEqual(clock.now());
+  });
+
   it("delete_tenant deletes via the agent, marks deleted and revokes sessions", async () => {
     const w = await seedWorld(t.db, { status: "deleting" });
     await t.db.insert(workspaceSessions).values({

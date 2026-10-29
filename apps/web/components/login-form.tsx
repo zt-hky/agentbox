@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup } from "@/components/ui/field";
+import { Notice } from "@/components/notice";
 import { signInWithProvider } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 import type { LoginProvider } from "@/lib/env";
@@ -43,41 +42,36 @@ export function LoginForm({
 }) {
   return (
     <div className={cn("flex flex-col gap-6", className)}>
-      <Card>
-        <CardHeader className="text-center">
-          <CardTitle className="text-xl">Welcome to AgentBox</CardTitle>
-          <CardDescription>Sign in to open your workspace</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {providers.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground">
-              No sign-in provider configured
-            </p>
-          ) : (
-            <form action={signInWithProvider}>
-              <input type="hidden" name="next" value={next} />
-              <FieldGroup>
-                {error ? (
-                  <p role="alert" className="text-center text-sm text-destructive">
-                    Sign-in failed. Please try again.
-                  </p>
-                ) : null}
-                <Field>
-                  {providers.map((p) => (
-                    <Button key={p} variant="outline" type="submit" name="provider" value={p}>
-                      {PROVIDERS[p].icon}
-                      {PROVIDERS[p].label}
-                    </Button>
-                  ))}
-                </Field>
-              </FieldGroup>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-      <FieldDescription className="px-6 text-center">
-        Access is granted by an administrator after you sign in and request it.
-      </FieldDescription>
+      <div className="space-y-1.5">
+        <h1 className="text-title">Sign in</h1>
+        <p className="text-sm text-muted-foreground">
+          Open your workspace, or request one if you are new here.
+        </p>
+      </div>
+      {providers.length === 0 ? (
+        <Notice tone="error">
+          No sign-in provider is configured. Set GitHub or Google credentials in the server
+          environment.
+        </Notice>
+      ) : (
+        <form action={signInWithProvider} className="flex flex-col gap-3">
+          <input type="hidden" name="next" value={next} />
+          {error ? (
+            <Notice tone="error">
+              Sign-in did not complete. Try again, or use another provider.
+            </Notice>
+          ) : null}
+          {providers.map((p) => (
+            <Button key={p} variant="outline" size="lg" type="submit" name="provider" value={p}>
+              {PROVIDERS[p].icon}
+              {PROVIDERS[p].label}
+            </Button>
+          ))}
+        </form>
+      )}
+      <p className="text-meta text-muted-foreground">
+        New accounts are reviewed by an administrator before a workspace is created.
+      </p>
     </div>
   );
 }

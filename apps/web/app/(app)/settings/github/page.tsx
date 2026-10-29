@@ -2,8 +2,13 @@ import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
 import { githubConnections } from "@agentbox/db/schema";
+import { KeyValueList } from "@/components/key-value-list";
+import { Mono } from "@/components/mono";
+import { Notice } from "@/components/notice";
+import { PageHeader } from "@/components/page-header";
+import { Section } from "@/components/section";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { githubConnectConfig } from "@/lib/env";
 import { formatDateTime } from "@/lib/format";
 import { requireActiveUser } from "@/lib/session";
@@ -12,8 +17,8 @@ import { DisconnectButton } from "./disconnect-button";
 export const metadata: Metadata = { title: "GitHub" };
 
 const ERRORS: Record<string, string> = {
-  state: "The sign-in state did not match. Please try again.",
-  exchange: "GitHub did not complete the connection. Please try again.",
+  state: "GitHub sign-in expired or came from another browser tab. Start the connection again.",
+  exchange: "GitHub did not finish the connection. Try again in a moment.",
 };
 
 export default async function GithubSettingsPage({
@@ -32,46 +37,49 @@ export default async function GithubSettingsPage({
   const configured = githubConnectConfig() !== null;
 
   return (
-    <Card className="max-w-2xl">
-      <CardHeader>
-        <CardTitle>GitHub connection</CardTitle>
-        <CardDescription>
-          Connects your workspace&apos;s gh CLI and git credentials to your GitHub account.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <>
+      <PageHeader
+        title="GitHub"
+        description="Connect your account so git and the gh CLI inside your workspace can reach your repositories."
+      />
+      <div className="max-w-2xl space-y-4">
         {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {ERRORS[error] ?? "Connection failed."}
-          </p>
+          <Notice tone="error">{ERRORS[error] ?? "The connection failed. Try again."}</Notice>
         ) : null}
         {connected ? (
-          <p className="text-sm text-muted-foreground">
-            GitHub connected. Your workspace will pick it up shortly.
-          </p>
+          <Notice>GitHub is connected. Your workspace picks it up within a minute.</Notice>
         ) : null}
         {conn ? (
-          <>
-            <dl className="grid grid-cols-[8rem_1fr] gap-y-1 text-sm">
-              <dt className="text-muted-foreground">Account</dt>
-              <dd>{conn.login}</dd>
-              <dt className="text-muted-foreground">Scopes</dt>
-              <dd>{conn.scopes || "none"}</dd>
-              <dt className="text-muted-foreground">Connected</dt>
-              <dd>{formatDateTime(conn.createdAt)}</dd>
-            </dl>
-            <DisconnectButton />
-          </>
+          <Section title="Connected" actions={<StatusBadge status="active" label="Connected" />}>
+            <KeyValueList
+              items={[
+                { label: "Account", value: <Mono>{conn.login}</Mono> },
+                { label: "Scopes", value: conn.scopes ? <Mono>{conn.scopes}</Mono> : "None" },
+                { label: "Connected on", value: formatDateTime(conn.createdAt) },
+              ]}
+            />
+            <div className="mt-5 border-t pt-4">
+              <DisconnectButton />
+            </div>
+          </Section>
         ) : configured ? (
-          <Button asChild>
-            <a href="/api/github/connect">Connect GitHub</a>
-          </Button>
+          <Section title="Not connected">
+            <p className="mb-4 text-sm text-muted-foreground">
+              You will be sent to GitHub to approve access, then brought back here.
+            </p>
+            <Button asChild>
+              <a href="/api/github/connect">Connect GitHub</a>
+            </Button>
+          </Section>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            GitHub connection is not configured on this server.
-          </p>
+          <Section title="Not available">
+            <p className="text-sm text-muted-foreground">
+              GitHub connection is not set up on this server. Ask an administrator to configure it
+              in settings.
+            </p>
+          </Section>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </>
   );
 }

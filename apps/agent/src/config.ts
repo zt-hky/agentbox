@@ -26,3 +26,7 @@ export const BUILD_TIMEOUT_MS = 2 * 60 * 60_000;
 
 export const TENANT_UID_BASE = 200000;
 export const MAX_BODY_BYTES = 64 * 1024;
+
+export const MONITOR_SOCKET_PATH =
+  process.env.AGENTBOX_MONITOR_SOCKET ?? "/run/agentbox/monitor.sock";
+export const MONITOR_USER = process.env.AGENTBOX_MONITOR_USER ?? "beszel";

@@ -174,9 +174,18 @@ if [ -f /opt/agentbox/agent/agent.mjs ]; then
   fi
 fi
 
+# ---- 6.11 monitoring: Beszel reads containers through the agent's read-only monitor socket
+if systemctl cat beszel-agent.service >/dev/null 2>&1; then
+  install_file etc/systemd/system/beszel-agent.service.d/agentbox.conf 644
+  if [ "$INSTALLED" = 1 ]; then
+    systemctl daemon-reload
+    systemctl try-restart beszel-agent.service
+  fi
+fi
+
 cat <<'MSG'
 
 [provision] done. Reminders:
   - run `sudo pro attach <token>` and `sudo pro enable livepatch` (Ubuntu Pro Livepatch)
-  - the agent stops all workspaces gracefully on SIGTERM (20 s each, parallel)
+  - on host shutdown the agent stops all workspaces gracefully (20 s each, parallel); a plain agent restart leaves them running and re-adopts them
 MSG

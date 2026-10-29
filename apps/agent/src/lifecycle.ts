@@ -2,6 +2,8 @@ import { lstat, readdir } from "node:fs/promises";
 import { wsSlugSchema } from "@agentbox/core/agent-api";
 import { TENANTS_DIR } from "./config.ts";
 import { errMessage, logEvent } from "./log.ts";
+import { ensurePodmanSocket } from "./monitor.ts";
+import { tenantUser } from "./argv.ts";
 import { isTenantUid, slotOfUid } from "./safe.ts";
 import { registry } from "./state.ts";
 import { userManagerUp } from "./tenants.ts";
@@ -36,8 +38,9 @@ export async function reconcile(): Promise<void> {
         slot: slotOfUid(st.uid),
         cgroupPath: info.cgroupPath,
         imageId: info.imageId,
-        startedAt: new Date().toISOString(),
+        startedAt: info.startedAt ?? new Date().toISOString(),
       });
+      await ensurePodmanSocket(tenantUser(ws));
       logEvent({ ws, event: "reconciled", imageId: info.imageId ?? undefined });
     } catch (e) {
       logEvent({ ws, event: "reconcile_failed", error: errMessage(e) });

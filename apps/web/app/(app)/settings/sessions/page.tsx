@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
 import { workspaceSessions } from "@agentbox/db/schema";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
+import { Section } from "@/components/section";
 import { requireActiveUser } from "@/lib/session";
-import { SessionsTable, type SessionRow } from "./sessions-table";
+import { RevokeAllButton, SessionsTable, type SessionRow } from "./sessions-table";
 
 export const metadata: Metadata = { title: "Sessions" };
 
@@ -25,17 +26,15 @@ export default async function SessionsPage() {
     state: r.revokedAt ? "revoked" : r.expiresAt.getTime() <= now ? "expired" : "active",
   }));
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Workspace sessions</CardTitle>
-        <CardDescription>
-          Browser sessions signed in to your workspace. Revocation takes effect within about 30
-          seconds.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+    <>
+      <PageHeader
+        title="Sessions"
+        description="Browsers signed in to your workspace. Revoking one takes effect within about 30 seconds."
+        actions={<RevokeAllButton anyActive={data.some((r) => r.state === "active")} />}
+      />
+      <Section title="Workspace sessions" bodyClassName="p-0">
         <SessionsTable rows={data} />
-      </CardContent>
-    </Card>
+      </Section>
+    </>
   );
 }

@@ -1,12 +1,14 @@
-import { eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
 import {
   creditBalances,
+  hostStats,
   plans,
   subscriptions,
   usageSamples,
   workspaces,
 } from "@agentbox/db/schema";
+import { cpuCoresFromSample, readingFromHostStats } from "./live-stats";
 
 export async function loadWorkspace(userId: string) {
   const rows = await db.select().from(workspaces).where(eq(workspaces.userId, userId)).limit(1);
@@ -46,4 +48,26 @@ export async function loadHourlyUsage(workspaceId: string) {
     runtimeMin: Math.round((Number(r.runtime_sec) / 60) * 10) / 10,
     cpuCoreMin: Math.round((Number(r.cpu_core_sec) / 60) * 10) / 10,
   }));
+}
+
+/** Live CPU/memory/disk for the user's own running workspace; null when not running or no fresh data. */
+export async function loadLiveReading(workspace: { id: string; slug: string; status: string }) {
+  if (workspace.status !== "running") return null;
+  const [stats, sample] = await Promise.all([
+    db.select().from(hostStats).where(eq(hostStats.id, 1)).limit(1),
+    db
+      .select({ cpuCoreSec: usageSamples.cpuCoreSec, runtimeSec: usageSamples.runtimeSec })
+      .from(usageSamples)
+      .where(eq(usageSamples.workspaceId, workspace.id))
+      .orderBy(desc(usageSamples.ts))
+      .limit(1),
+  ]);
+  const row = stats[0];
+  const reading = row ? readingFromHostStats(row.payload, row.updatedAt, workspace.slug) : null;
+  if (!reading?.running) return null;
+  return {
+    cpuCores: cpuCoresFromSample(sample[0] ?? null),
+    memBytes: reading.memBytes,
+    diskBytes: reading.diskBytes,
+  };
 }

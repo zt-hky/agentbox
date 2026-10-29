@@ -9,6 +9,7 @@ import {
   logQuerySchema,
   startWorkspaceRequestSchema,
   updateLimitsRequestSchema,
+  workspaceLogQuerySchema,
   wsParamsSchema,
 } from "@agentbox/core/agent-api";
 import { checkBearer } from "./auth.ts";
@@ -19,7 +20,14 @@ import { buildImage, deleteImage, readBuildLog } from "./images.ts";
 import { errMessage, logEvent } from "./log.ts";
 import { collectStats } from "./stats.ts";
 import { createTenant, deleteTenant, updateLimits } from "./tenants.ts";
-import { githubConnect, githubDisconnect, startWorkspace, stopWorkspace } from "./workspaces.ts";
+import {
+  githubConnect,
+  githubDisconnect,
+  startWorkspace,
+  stopWorkspace,
+  workspaceLogs,
+  workspaceTop,
+} from "./workspaces.ts";
 
 const OK = { ok: true } as const;
 
@@ -104,6 +112,20 @@ export const routes: Route[] = [
       await githubDisconnect(parse(wsParamsSchema, { ws: c.params["0"] }).ws);
       return OK;
     },
+  },
+  {
+    method: "GET",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/logs$/,
+    handler: async (c) => {
+      const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
+      const { tail } = parse(workspaceLogQuerySchema, Object.fromEntries(c.query));
+      return workspaceLogs(ws, tail);
+    },
+  },
+  {
+    method: "GET",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/top$/,
+    handler: async (c) => workspaceTop(parse(wsParamsSchema, { ws: c.params["0"] }).ws),
   },
   { method: "GET", pattern: /^\/v1\/stats$/, handler: () => collectStats() },
   {

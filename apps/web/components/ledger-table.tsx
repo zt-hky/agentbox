@@ -1,7 +1,6 @@
 "use client";
 
 import { DataTable, columnHelper, type Columns } from "@/components/data-table";
-import { Badge } from "@/components/ui/badge";
 import { microToCredits } from "@/lib/money";
 
 export interface LedgerRow {
@@ -12,6 +11,8 @@ export interface LedgerRow {
   note: string | null;
 }
 
+const sentence = (v: string) => v.replaceAll("_", " ").replace(/^./, (ch) => ch.toUpperCase());
+
 const h = columnHelper<LedgerRow>();
 const columns = [
   h.accessor("createdAt", {
@@ -20,23 +21,33 @@ const columns = [
   }),
   h.accessor("reason", {
     header: "Reason",
-    cell: (c) => <Badge variant="outline">{c.getValue()}</Badge>,
+    cell: (c) => sentence(c.getValue()),
   }),
   h.accessor("deltaMicro", {
-    header: "Amount",
+    header: () => <span className="block text-right">Amount</span>,
     cell: (c) => {
       const v = BigInt(c.getValue());
       return (
-        <span className={v < 0n ? "tabular-nums text-destructive" : "tabular-nums"}>
+        <span className={v < 0n ? "block text-right text-destructive" : "block text-right"}>
           {v > 0n ? "+" : ""}
           {microToCredits(v)}
         </span>
       );
     },
   }),
-  h.accessor("note", { header: "Note", cell: (c) => c.getValue() ?? "" }),
+  h.accessor("note", {
+    header: "Note",
+    cell: (c) => <span className="text-muted-foreground">{c.getValue() ?? ""}</span>,
+  }),
 ] as Columns<LedgerRow>;
 
 export function LedgerTable({ rows }: { rows: LedgerRow[] }) {
-  return <DataTable columns={columns} data={rows} empty="No ledger entries." />;
+  return (
+    <DataTable
+      flush
+      columns={columns}
+      data={rows}
+      empty="No ledger entries yet. Top-ups and charges appear here."
+    />
+  );
 }

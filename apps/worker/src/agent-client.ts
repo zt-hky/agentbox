@@ -6,6 +6,8 @@ import {
   errorResponseSchema,
   okResponseSchema,
   startWorkspaceResponseSchema,
+  workspaceLogResponseSchema,
+  workspaceTopResponseSchema,
   statsResponseSchema,
   type BuildImageRequest,
   type BuildImageResponse,
@@ -15,6 +17,8 @@ import {
   type StartWorkspaceResponse,
   type StatsResponse,
   type UpdateLimitsRequest,
+  type WorkspaceLogResponse,
+  type WorkspaceTopResponse,
 } from "@agentbox/core/agent-api";
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
@@ -38,6 +42,8 @@ export interface AgentClient {
   stopWorkspace(ws: string): Promise<void>;
   githubConnect(ws: string, req: GithubConnectRequest): Promise<void>;
   githubDisconnect(ws: string): Promise<void>;
+  workspaceLogs(ws: string, tail: number): Promise<WorkspaceLogResponse>;
+  workspaceTop(ws: string): Promise<WorkspaceTopResponse>;
   stats(): Promise<StatsResponse>;
   buildImage(req: BuildImageRequest): Promise<BuildImageResponse>;
   buildLog(jobId: string, tail: number): Promise<string>;
@@ -157,6 +163,17 @@ export function createAgentClient(opts: AgentClientOptions): AgentClient {
     },
     async githubDisconnect(ws) {
       await call("DELETE", `/v1/workspaces/${seg(ws)}/github`, undefined, okResponseSchema);
+    },
+    workspaceLogs(ws, tail) {
+      return call(
+        "GET",
+        `/v1/workspaces/${seg(ws)}/logs?tail=${tail}`,
+        undefined,
+        workspaceLogResponseSchema,
+      );
+    },
+    workspaceTop(ws) {
+      return call("GET", `/v1/workspaces/${seg(ws)}/top`, undefined, workspaceTopResponseSchema);
     },
     stats() {
       return call("GET", "/v1/stats", undefined, statsResponseSchema);

@@ -21,20 +21,32 @@ export function DataTable<TData extends RowData>({
   columns,
   data,
   empty = "Nothing here yet.",
+  flush = false,
 }: {
   columns: Columns<TData>;
   data: TData[];
   empty?: string;
+  /** Drop the outer frame when the table sits edge to edge inside a Section (`bodyClassName="p-0"`). */
+  flush?: boolean;
 }) {
   const table = useTable({ features, columns, data });
   return (
-    <div className="overflow-hidden rounded-md border">
+    <div
+      className={
+        flush
+          ? "overflow-hidden [&_td:first-child]:pl-5 [&_td:last-child]:pr-5 [&_th:first-child]:pl-5 [&_th:last-child]:pr-5"
+          : "overflow-hidden rounded-lg border"
+      }
+    >
       <Table>
-        <TableHeader>
+        <TableHeader className="bg-rack">
           {table.getHeaderGroups().map((group) => (
             <TableRow key={group.id}>
               {group.headers.map((header) => (
-                <TableHead key={header.id}>
+                <TableHead
+                  key={header.id}
+                  className="h-9 text-meta font-medium text-muted-foreground"
+                >
                   {header.isPlaceholder ? null : <table.FlexRender header={header} />}
                 </TableHead>
               ))}

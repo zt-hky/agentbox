@@ -11,6 +11,7 @@ export function SleepButton() {
   const [pending, start] = useTransition();
   return (
     <Button
+      size="lg"
       variant="outline"
       disabled={pending}
       onClick={() =>

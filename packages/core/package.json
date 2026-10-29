@@ -12,6 +12,7 @@
     "./billing": "./src/billing.ts",
     "./idle": "./src/idle.ts",
     "./agent-api": "./src/agent-api.ts",
+    "./job-contracts": "./src/job-contracts.ts",
     "./settings": "./src/settings.ts"
   },
   "scripts": {

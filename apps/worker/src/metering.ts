@@ -1,11 +1,12 @@
-import { desc, eq, lte } from "drizzle-orm";
+import { desc, eq, gte, lte, sql } from "drizzle-orm";
 import { canWake, computeCharge, evaluateActivity, type IdleConfig } from "@agentbox/core";
-import type { StatsResponse } from "@agentbox/core/agent-api";
+import type { StatsResponse, WorkerHeartbeat } from "@agentbox/core/agent-api";
 import { readSetting } from "@agentbox/db/client";
 import {
   creditBalances,
   creditLedger,
   hostStats,
+  jobs,
   plans,
   prices,
   subscriptions,
@@ -37,14 +38,42 @@ export function createMeteringState(): MeteringState {
 
 type WsStat = StatsResponse["workspaces"][number];
 
+/** Worker liveness and queue depth, stored under `host_stats.payload.worker`. */
+export async function workerHeartbeat(ctx: Ctx): Promise<WorkerHeartbeat> {
+  const now = ctx.now();
+  const rows = await ctx.db
+    .select({ status: jobs.status, n: sql<number>`count(*)::int` })
+    .from(jobs)
+    .where(
+      sql`${jobs.status} in ('queued','running') or (${jobs.status} = 'failed' and ${gte(jobs.finishedAt, new Date(now.getTime() - 24 * 3600_000))})`,
+    )
+    .groupBy(jobs.status);
+  const n = (s: string) => rows.find((r) => r.status === s)?.n ?? 0;
+  return {
+    heartbeatAt: now.toISOString(),
+    queue: { queued: n("queued"), running: n("running"), failed24h: n("failed") },
+  };
+}
+
 export async function meterTick(ctx: Ctx, state: MeteringState): Promise<void> {
   const { db } = ctx;
-  const stats = await ctx.agent.stats();
+  const worker = await workerHeartbeat(ctx);
+  let stats: StatsResponse;
+  try {
+    stats = await ctx.agent.stats();
+  } catch (e) {
+    // Keep the heartbeat fresh when only the agent is down; the stats age shows the outage.
+    await db.execute(
+      sql`update host_stats set payload = jsonb_set(payload, '{worker}', ${JSON.stringify(worker)}::jsonb) where id = 1`,
+    );
+    throw e;
+  }
   const now = ctx.now();
+  const payload = { ...stats, worker };
   await db
     .insert(hostStats)
-    .values({ id: 1, payload: stats, updatedAt: now })
-    .onConflictDoUpdate({ target: hostStats.id, set: { payload: stats, updatedAt: now } });
+    .values({ id: 1, payload, updatedAt: now })
+    .onConflictDoUpdate({ target: hostStats.id, set: { payload, updatedAt: now } });
 
   const [priceRow] = await db
     .select()

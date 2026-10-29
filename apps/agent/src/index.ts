@@ -5,6 +5,8 @@ import { startFirewallSync } from "./firewall.ts";
 import { cleanStaleRootfsTmp } from "./images.ts";
 import { reconcile, stopAll } from "./lifecycle.ts";
 import { errMessage, logEvent } from "./log.ts";
+import { startMonitor } from "./monitor.ts";
+import { hostIsShuttingDown } from "./shutdown.ts";
 import { ensureRootfs } from "./rootfs.ts";
 import { createAgentServer } from "./server.ts";
 
@@ -38,6 +40,10 @@ async function main(): Promise<void> {
   await reconcile();
   await cleanStaleRootfsTmp();
   const stopFirewall = await startFirewallSync();
+  const stopMonitor = await startMonitor().catch((e) => {
+    logEvent({ event: "monitor_failed", error: errMessage(e) });
+    return null;
+  });
 
   let stopping = false;
   const shutdown = (signal: string) => {
@@ -45,8 +51,16 @@ async function main(): Promise<void> {
     stopping = true;
     logEvent({ event: "shutdown", signal });
     stopFirewall();
+    stopMonitor?.();
     server.close();
-    void stopAll().finally(() => process.exit(0));
+    // Containers run under their tenants' user@ managers and survive an agent restart; only a host
+    // shutdown needs the graceful stop. The next start re-adopts them (reconcile).
+    void hostIsShuttingDown()
+      .then((down) => {
+        logEvent({ event: "shutdown_mode", stopWorkspaces: down });
+        return down ? stopAll() : undefined;
+      })
+      .finally(() => process.exit(0));
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));

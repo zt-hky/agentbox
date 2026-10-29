@@ -4,7 +4,9 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { DataTable, columnHelper, type Columns } from "@/components/data-table";
-import { Badge } from "@/components/ui/badge";
+import { Mono } from "@/components/mono";
+import { StatusBadge } from "@/components/status-badge";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { revokeAllSessions, revokeSession } from "./actions";
 
@@ -39,7 +41,7 @@ function RevokeButton({ id }: { id: string }) {
 
 const h = columnHelper<SessionRow>();
 const columns = [
-  h.accessor("host", { header: "Host" }),
+  h.accessor("host", { header: "Host", cell: (c) => <Mono>{c.getValue()}</Mono> }),
   h.accessor("createdAt", {
     header: "Signed in",
     cell: (c) => c.getValue().slice(0, 16).replace("T", " "),
@@ -50,9 +52,7 @@ const columns = [
   }),
   h.accessor("state", {
     header: "State",
-    cell: (c) => (
-      <Badge variant={c.getValue() === "active" ? "default" : "outline"}>{c.getValue()}</Badge>
-    ),
+    cell: (c) => <StatusBadge status={c.getValue()} />,
   }),
   h.display({
     id: "actions",
@@ -62,31 +62,39 @@ const columns = [
   }),
 ] as Columns<SessionRow>;
 
-export function SessionsTable({ rows }: { rows: SessionRow[] }) {
+/** Header action: revoke every active session after confirming. */
+export function RevokeAllButton({ anyActive }: { anyActive: boolean }) {
   const router = useRouter();
-  const [pending, start] = useTransition();
-  const anyActive = rows.some((r) => r.state === "active");
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button
-          variant="destructive"
-          disabled={pending || !anyActive}
-          onClick={() =>
-            start(async () => {
-              const res = await revokeAllSessions();
-              if (!res.ok) toast.error(res.error);
-              else {
-                toast.success("All sessions revoked");
-                router.refresh();
-              }
-            })
-          }
-        >
+    <ConfirmDialog
+      trigger={
+        <Button variant="outline" disabled={!anyActive}>
           Revoke all
         </Button>
-      </div>
-      <DataTable columns={columns} data={rows} empty="No workspace sessions." />
-    </div>
+      }
+      title="Revoke all sessions?"
+      description="Every browser signed in to your workspace will be signed out within about 30 seconds. You can sign in again from the dashboard."
+      confirmLabel="Revoke all"
+      destructive
+      onConfirm={async () => {
+        const res = await revokeAllSessions();
+        if (res.ok) {
+          toast.success("All sessions revoked");
+          router.refresh();
+        }
+        return res;
+      }}
+    />
+  );
+}
+
+export function SessionsTable({ rows }: { rows: SessionRow[] }) {
+  return (
+    <DataTable
+      flush
+      columns={columns}
+      data={rows}
+      empty="No workspace sessions yet. One appears when you open T3 Code or VS Code."
+    />
   );
 }

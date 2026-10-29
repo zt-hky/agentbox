@@ -1,0 +1,13 @@
+table inet agentbox {
+	chain output {
+		type filter hook output priority filter - 5; policy accept;
+		meta skuid != 200001-204999 accept
+		ct state established,related accept
+		meta nfproto ipv6 counter packets 8806 bytes 678244 drop
+		ip daddr @blocked4 counter packets 454 bytes 27006 drop
+		ip daddr @extra_blocked4 counter packets 0 bytes 0 drop
+		tcp dport 25 counter packets 38 bytes 2280 drop
+		ct state new update @newconn_rate { meta skuid limit rate over 200/second burst 400 packets } counter packets 0 bytes 0 drop
+		accept
+	}
+}

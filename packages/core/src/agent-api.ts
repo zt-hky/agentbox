@@ -96,8 +96,34 @@ export type BuildImageResponse = z.infer<typeof buildImageResponseSchema>;
 export const buildLogResponseSchema = z.object({ log: z.string() });
 export type BuildLogResponse = z.infer<typeof buildLogResponseSchema>;
 
+/** GET /v1/workspaces/:ws/logs?tail= (podman logs as the tenant; 409 when the workspace is not running) */
+export const MIN_DIAG_LOG_TAIL = 10;
+export const MAX_DIAG_LOG_TAIL = 2000;
+export const workspaceLogQuerySchema = z.object({
+  tail: z.coerce.number().int().min(MIN_DIAG_LOG_TAIL).max(MAX_DIAG_LOG_TAIL).default(200),
+});
+export const workspaceLogResponseSchema = z.object({ log: z.string() });
+export type WorkspaceLogResponse = z.infer<typeof workspaceLogResponseSchema>;
+
+/** GET /v1/workspaces/:ws/top (podman top as the tenant; 409 when the workspace is not running) */
+export const processInfoSchema = z.object({
+  pid: z.number().int().nonnegative(),
+  user: z.string(),
+  cpu: z.number().nonnegative(),
+  mem: z.number().nonnegative(),
+  elapsed: z.string(),
+  command: z.string(),
+});
+export type ProcessInfo = z.infer<typeof processInfoSchema>;
+export const workspaceTopResponseSchema = z.object({
+  startedAt: z.string().nullable(),
+  processes: z.array(processInfoSchema),
+});
+export type WorkspaceTopResponse = z.infer<typeof workspaceTopResponseSchema>;
+
 /** GET /v1/stats */
 const triple = z.tuple([z.number(), z.number(), z.number()]);
+const count = z.number().int().nonnegative();
 export const statsResponseSchema = z.object({
   host: z.object({
     cpus: z.number().int().positive(),
@@ -106,7 +132,23 @@ export const statsResponseSchema = z.object({
     diskTotalBytes: z.number().nonnegative(),
     diskFreeBytes: z.number().nonnegative(),
     loadavg: triple,
+    uptimeSec: z.number().nonnegative(),
+    kernel: z.string(),
+    podmanVersion: z.string().nullable(),
+    services: z.array(z.object({ name: z.string(), active: z.boolean() })),
+    firewall: z.object({ blockedPackets: count, smtpPackets: count, ipv6Packets: count }),
+    publicIpBlocked: z.string().nullable(),
   }),
+  tenants: z.array(
+    z.object({
+      ws: wsSlugSchema,
+      uid: z.number().int().positive(),
+      diskUsedBytes: z.number().nonnegative(),
+      diskLimitBytes: z.number().nonnegative(),
+      inodesUsed: count,
+      inodesLimit: count,
+    }),
+  ),
   workspaces: z.array(
     z.object({
       ws: wsSlugSchema,
@@ -117,10 +159,19 @@ export const statsResponseSchema = z.object({
       gatewayBytesDelta: z.number().nonnegative(),
       egressBytesDelta: z.number().nonnegative(),
       running: z.boolean(),
+      startedAt: z.string().nullable(),
     }),
   ),
 });
 export type StatsResponse = z.infer<typeof statsResponseSchema>;
+
+/** `host_stats.payload`: the agent stats plus the worker's own heartbeat (written every metering tick). */
+export const workerHeartbeatSchema = z.object({
+  heartbeatAt: z.string(),
+  queue: z.object({ queued: count, running: count, failed24h: count }),
+});
+export type WorkerHeartbeat = z.infer<typeof workerHeartbeatSchema>;
+export type HostStatsPayload = StatsResponse & { worker?: WorkerHeartbeat };
 
 /** Generic bodies */
 export const okResponseSchema = z.object({ ok: z.literal(true) });

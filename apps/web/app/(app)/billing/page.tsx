@@ -2,9 +2,13 @@ import type { Metadata } from "next";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
 import { creditLedger } from "@agentbox/db/schema";
-import { AllowanceBar } from "@/components/allowance-bar";
+import { AllowanceMeters } from "@/components/allowance-meters";
+import { KeyValueList } from "@/components/key-value-list";
 import { LedgerTable, type LedgerRow } from "@/components/ledger-table";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
+import { Section } from "@/components/section";
+import { Stat } from "@/components/stat";
+import { formatDate } from "@/lib/format";
 import { formatCredits } from "@/lib/money";
 import { creditLabel, currentPrices } from "@/lib/queries";
 import { requireActiveUser } from "@/lib/session";
@@ -36,88 +40,55 @@ export default async function BillingPage() {
 
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardDescription>Balance</CardDescription>
-            <CardTitle className="text-2xl tabular-nums">{formatCredits(balance, label)}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardDescription>Prices</CardDescription>
-            <CardTitle className="text-base">Charged once the plan allowance is used up</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-1 text-sm">
-            {prices ? (
-              <>
-                <div className="flex justify-between">
-                  <span>Runtime</span>
-                  <span className="tabular-nums">
-                    {formatCredits(prices.runtimePerHour, label)} / hour
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>CPU</span>
-                  <span className="tabular-nums">
-                    {formatCredits(prices.cpuCorePerHour, label)} / core-hour
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Memory</span>
-                  <span className="tabular-nums">
-                    {formatCredits(prices.memGbPerHour, label)} / GB-hour
-                  </span>
-                </div>
-              </>
-            ) : (
-              <span className="text-muted-foreground">No prices configured.</span>
-            )}
-          </CardContent>
-        </Card>
+      <PageHeader
+        title="Billing"
+        description="Your plan allowance comes first. Once it is used up, the workspace draws from your credit balance."
+      />
+
+      <div className="grid gap-8 md:grid-cols-[16rem_1fr]">
+        <Stat
+          label="Credit balance"
+          value={formatCredits(balance, label)}
+          hint="Top-ups are added by an administrator."
+        />
+        <Section title="Prices after the allowance" bodyClassName="py-4">
+          {prices ? (
+            <KeyValueList
+              items={[
+                {
+                  label: "Runtime",
+                  value: `${formatCredits(prices.runtimePerHour, label)} per hour`,
+                },
+                {
+                  label: "CPU",
+                  value: `${formatCredits(prices.cpuCorePerHour, label)} per core-hour`,
+                },
+                {
+                  label: "Memory",
+                  value: `${formatCredits(prices.memGbPerHour, label)} per GB-hour`,
+                },
+              ]}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No prices are configured yet, so nothing is charged.
+            </p>
+          )}
+        </Section>
       </div>
 
       {sub ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Current cycle: {sub.plan.name}</CardTitle>
-            <CardDescription>
-              {sub.sub.cycleStart.toISOString().slice(0, 10)} to{" "}
-              {sub.sub.cycleEnd.toISOString().slice(0, 10)}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
-            <AllowanceBar
-              label="Runtime"
-              used={sub.sub.usedRuntimeHours}
-              total={sub.plan.allowanceRuntimeHours}
-              unit="h"
-            />
-            <AllowanceBar
-              label="CPU"
-              used={sub.sub.usedCpuCoreHours}
-              total={sub.plan.allowanceCpuCoreHours}
-              unit="core-h"
-            />
-            <AllowanceBar
-              label="Memory"
-              used={sub.sub.usedMemGbHours}
-              total={sub.plan.allowanceMemGbHours}
-              unit="GB-h"
-            />
-          </CardContent>
-        </Card>
+        <Section
+          title={`${sub.plan.name} plan`}
+          description={`Current cycle: ${formatDate(sub.sub.cycleStart)} to ${formatDate(sub.sub.cycleEnd)}.`}
+        >
+          <AllowanceMeters used={sub.sub} plan={sub.plan} />
+        </Section>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Ledger</CardTitle>
-          <CardDescription>Latest 100 entries</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <LedgerTable rows={rows} />
-        </CardContent>
-      </Card>
+      <Section title="Ledger" description="Your latest 100 entries." bodyClassName="p-0">
+        <LedgerTable rows={rows} />
+      </Section>
     </>
   );
 }

@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { Box, Check, Clock, Rocket, ShieldOff, XCircle } from "lucide-react";
+import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AuthShell } from "@/components/auth-shell";
+import { Notice } from "@/components/notice";
 import { signOut } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 import { latestRequestFor } from "@/lib/queries";
@@ -13,34 +14,35 @@ export const metadata: Metadata = { title: "Waiting for access" };
 
 type StepState = "done" | "current" | "todo";
 
-function Step({
-  state,
-  icon: Icon,
-  title,
-  detail,
-}: {
-  state: StepState;
-  icon: typeof Check;
-  title: string;
-  detail?: string;
-}) {
+function Step({ state, title, detail }: { state: StepState; title: string; detail?: string }) {
   return (
-    <li className="flex gap-3">
-      <span
-        className={cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-full border",
-          state === "done" && "border-primary bg-primary text-primary-foreground",
-          state === "current" && "border-primary text-primary",
-          state === "todo" && "text-muted-foreground",
-        )}
-      >
-        {state === "done" ? <Check className="size-4" /> : <Icon className="size-4" />}
+    <li className="group relative flex gap-3 pb-5 last:pb-0">
+      <span className="relative flex w-5 shrink-0 justify-center">
+        <span
+          className="absolute top-6 -bottom-1 w-px bg-border group-last:hidden"
+          aria-hidden="true"
+        />
+        <span
+          aria-hidden="true"
+          className={cn(
+            "mt-0.5 flex size-5 items-center justify-center rounded-full border",
+            state === "done" && "border-signal bg-signal text-signal-foreground",
+            state === "current" && "border-status-busy",
+            state === "todo" && "border-border",
+          )}
+        >
+          {state === "done" ? <Check className="size-3" /> : null}
+          {state === "current" ? <span className="size-2 rounded-full bg-status-busy" /> : null}
+        </span>
       </span>
-      <div className="pt-1">
+      <div>
         <div className={cn("text-sm font-medium", state === "todo" && "text-muted-foreground")}>
           {title}
+          <span className="sr-only">
+            {state === "done" ? " (done)" : state === "current" ? " (in progress)" : ""}
+          </span>
         </div>
-        {detail ? <div className="text-sm text-muted-foreground">{detail}</div> : null}
+        {detail ? <div className="text-meta text-muted-foreground">{detail}</div> : null}
       </div>
     </li>
   );
@@ -56,98 +58,75 @@ export default async function RequestAccessPage() {
   const latest = await latestRequestFor(session.user.id);
   const firstName = session.user.name.split(" ")[0] || session.user.name;
 
-  const headings: Record<string, { icon: typeof Check; title: string; text: string }> = {
+  const headings: Record<string, { title: string; text: string }> = {
     pending: {
-      icon: Clock,
       title: "Your request is waiting for approval",
-      text: "An administrator reviews every new account before creating its workspace. You don't need to do anything else; this page updates by itself once you're approved.",
+      text: "An administrator reviews every new account before creating its workspace. You do not need to do anything else; this page checks every 30 seconds and moves on once you are approved.",
     },
     none: {
-      icon: Clock,
-      title: "Request access to AgentBox",
+      title: "Request access",
       text: "Send a request and an administrator will review it.",
     },
     rejected: {
-      icon: XCircle,
       title: "Your request was not approved",
       text: "You can send a new request with more details.",
     },
     suspended: {
-      icon: ShieldOff,
       title: "Your access is suspended",
       text: "An administrator has paused this account. Contact them if you think this is a mistake.",
     },
   };
   const heading = headings[status ?? "none"] ?? headings.none!;
-  const HeadingIcon = heading.icon;
 
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
-      <div className="flex w-full max-w-lg flex-col gap-6">
-        <div className="flex items-center gap-2 self-center font-medium">
-          <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Box className="size-4" />
-          </div>
-          AgentBox
-        </div>
-        <Card>
-          <CardHeader className="space-y-3">
-            <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-              <HeadingIcon className="size-5" />
-            </div>
-            <CardTitle className="text-xl">
-              Hi {firstName}. {heading.title}
-            </CardTitle>
-            <CardDescription>{heading.text}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {status === "pending" ? (
-              <ol className="space-y-4">
-                <Step state="done" icon={Check} title="Signed in" detail={session.user.email} />
-                <Step
-                  state="current"
-                  icon={Clock}
-                  title="Admin review"
-                  detail={latest ? `Requested ${formatWhen(latest.createdAt)}` : undefined}
-                />
-                <Step
-                  state="todo"
-                  icon={Rocket}
-                  title="Workspace ready"
-                  detail="T3 Code and VS Code open from your dashboard"
-                />
-              </ol>
-            ) : null}
-
-            {status === "rejected" && latest?.reason ? (
-              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
-                <div className="font-medium">Reason from the admin</div>
-                <div className="text-muted-foreground">{latest.reason}</div>
-              </div>
-            ) : null}
-
-            {status === "pending" ? (
-              <RequestForm mode="note" initialMessage={latest?.message ?? ""} />
-            ) : null}
-            {status === "none" ? <RequestForm mode="request" /> : null}
-            {status === "rejected" ? <RequestForm mode="again" /> : null}
-
-            <div className="flex items-center justify-between border-t pt-4">
-              <span className="text-xs text-muted-foreground">
-                Signed in as {session.user.email}
-              </span>
-              <div className="flex items-center gap-1">
-                {status === "pending" ? <ApprovalWatcher /> : null}
-                <form action={signOut}>
-                  <Button type="submit" variant="ghost" size="sm">
-                    Sign out
-                  </Button>
-                </form>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <AuthShell>
+      <div className="space-y-1.5">
+        <h1 className="text-title">{heading.title}</h1>
+        <p className="text-sm text-muted-foreground">
+          Hi {firstName}. {heading.text}
+        </p>
       </div>
-    </div>
+
+      {status === "pending" ? (
+        <ol>
+          <Step state="done" title="Signed in" detail={session.user.email} />
+          <Step
+            state="current"
+            title="Admin review"
+            detail={latest ? `Requested ${formatWhen(latest.createdAt)}` : undefined}
+          />
+          <Step
+            state="todo"
+            title="Workspace ready"
+            detail="T3 Code and VS Code open from your dashboard."
+          />
+        </ol>
+      ) : null}
+
+      {status === "rejected" && latest?.reason ? (
+        <Notice tone="error">
+          <span className="font-medium">Reason from the admin: </span>
+          {latest.reason}
+        </Notice>
+      ) : null}
+
+      {status === "pending" ? (
+        <RequestForm mode="note" initialMessage={latest?.message ?? ""} />
+      ) : null}
+      {status === "none" ? <RequestForm mode="request" /> : null}
+      {status === "rejected" ? <RequestForm mode="again" /> : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
+        <span className="text-meta text-muted-foreground">Signed in as {session.user.email}</span>
+        <div className="flex items-center gap-1">
+          {status === "pending" ? <ApprovalWatcher /> : null}
+          <form action={signOut}>
+            <Button type="submit" variant="ghost" size="sm">
+              Sign out
+            </Button>
+          </form>
+        </div>
+      </div>
+    </AuthShell>
   );
 }

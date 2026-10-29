@@ -24,7 +24,8 @@ Caddy :8480                         [abx-cp, Network=host]                infra/
   |     reverse_proxy -> 127.0.0.1:<20000+2n | 20001+2n>
   |
   |   worker --/run/agentbox/agent.sock (0600 abx-cp)--> agent (root, Node 22)   apps/agent
-  |                                                          |
+  |   beszel-agent --/run/agentbox/monitor.sock (0600 beszel, GET only)--> agent --> Podman API sockets
+  |                                                          |   (abx-cp and running tenants, read-only allow-list)
   |                                      systemd-run --machine=abx-<ws>@ --user ...
   |                                                          |
   v                                              user@<U>.service (per tenant, lingering)
@@ -41,6 +42,12 @@ UID U. nftables `inet agentbox` `output` chain matches `meta skuid 200001-204999
 - Workspace hosts are one label under the base domain, so workspaces do not share an origin with each other or
   with the control plane. The gateway strips `__Host-abx_ws` before proxying (`infra/cp/Caddyfile`).
 - The agent socket is only bind-mounted into the worker container, not the web container.
+- Monitoring: `/run/agentbox/monitor.sock` (owned by `AGENTBOX_MONITOR_USER`, default `beszel`, mode 0600, no
+  token; access is the socket's ownership) serves a Docker-compatible, GET-only allow-list (`/containers/json`,
+  `/containers/{id}/{stats,json,logs}`, `/version`, `/info`, `/_ping`) by proxying Podman API sockets
+  (`podman.socket` of `abx-cp` and of each running tenant, started by the agent). Tenant containers are shown as
+  `ws-<slug>`; `Config.Env` is stripped from inspect output; logs are served only for control-plane containers.
+  Beszel is pointed at it with `DOCKER_HOST` (`infra/host/files/etc/systemd/system/beszel-agent.service.d`).
 
 ## B. Threat model and ranked residual risks
 
@@ -78,6 +85,12 @@ Ranked residual risks:
 7. **Supply chain of the `latest` CLIs** (Codex, Claude Code, Oh My Pi, code-server, T3 fork) baked into the
    image. Mitigations: Trivy scan per build and admin activation before an image is used.
 
+8. **Monitor socket exposes container metadata to the `beszel` user.** Anyone who can run code as `beszel` can read
+   container names, ids, images, mounts, labels, resource stats and control-plane container logs (which may
+   contain operational data, not secrets such as `Config.Env`). It cannot write, exec, or read workspace logs.
+   The tenant's own Podman API socket is only ever read by the root agent; a tenant cannot reach it from inside
+   the container.
+
 Other validated deviations that affect the model:
 
 - **Tenants linger** (`loginctl enable-linger abx-<ws>`): without it logind stops `user@U` when the last
@@ -108,6 +121,7 @@ Status is from `host-validation.md` and the files in `infra/`; `[ ]` means not d
 - [x] unattended-upgrades (security pocket, auto-reboot 04:00) and needrestart auto-restart config installed
 - [ ] Ubuntu Pro Livepatch attached (`pro attach`, `pro enable livepatch`): manual step
 - [x] `/etc/agentbox/agent.env` root 0600; `agentbox-agent.service` active, socket `/run/agentbox/agent.sock` owned by `abx-cp`, 0600
+- [x] `/run/agentbox/monitor.sock` owned by `beszel`, 0600; `beszel-agent` drop-in sets `DOCKER_HOST=unix:///run/agentbox/monitor.sock`; POST returns 405, tenant logs 403
 - [x] Per-tenant user@ and slice drop-ins written by the agent (H), `systemctl daemon-reload`, linger enabled
 - [x] Control plane deployed as `abx-cp` (`infra/cp/deploy.sh`): Caddy `127.0.0.1:8480`, web 3000, worker 3001, Postgres pod-internal
 - [x] Host validation A (transport), B (shared rootfs), D (pasta), E (drop-ins, with fallback), F (egress), G (quota): PASS; C (AppArmor): FAIL, fallback applied

@@ -314,6 +314,9 @@ export const JOB_TYPES = [
   "update_limits",
   "build_image",
   "delete_image",
+  "restart_workspace",
+  "fetch_logs",
+  "inspect_workspace",
 ] as const;
 
 export const jobs = pgTable(
@@ -328,6 +331,8 @@ export const jobs = pgTable(
       .default("queued"),
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
+    result: jsonb("result"),
+    finishedAt: tstz("finished_at"),
     runAfter: tstz("run_after").notNull().defaultNow(),
     createdAt: createdAt(),
   },

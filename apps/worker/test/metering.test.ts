@@ -31,6 +31,7 @@ const wsStat = (over: Partial<StatsResponse["workspaces"][number]> = {}) => ({
   gatewayBytesDelta: 0,
   egressBytesDelta: 0,
   running: true,
+  startedAt: null,
   ...over,
 });
 
@@ -49,7 +50,14 @@ beforeEach(async () => {
       diskTotalBytes: 1e12,
       diskFreeBytes: 5e11,
       loadavg: [0, 0, 0],
+      uptimeSec: 1,
+      kernel: "k",
+      podmanVersion: "5.7.0",
+      services: [],
+      firewall: { blockedPackets: 0, smtpPackets: 0, ipv6Packets: 0 },
+      publicIpBlocked: null,
     },
+    tenants: [],
     workspaces: [wsStat()],
   };
 });
@@ -308,6 +316,46 @@ describe("metering transaction", () => {
     const rows = await t.db.select().from(hostStats);
     expect(rows).toHaveLength(1);
     expect((rows[0]!.payload as StatsResponse).host.memTotalBytes).toBe(123);
+  });
+
+  it("writes the worker heartbeat with queue counts into the payload", async () => {
+    const row = (status: "queued" | "running" | "failed", finishedAt: Date | null) => ({
+      type: "sync_github" as const,
+      workspaceId: null,
+      status,
+      finishedAt,
+    });
+    const day = 24 * 3600_000;
+    await t.db.insert(jobs).values([
+      row("queued", null),
+      row("queued", null),
+      row("running", null),
+      row("failed", new Date(clock.now().getTime() - day + 1000)),
+      row("failed", new Date(clock.now().getTime() - day - 1000)),
+    ]);
+    await meterTick(ctx(), createMeteringState());
+    const [r] = await t.db.select().from(hostStats);
+    expect((r!.payload as { worker: unknown }).worker).toEqual({
+      heartbeatAt: clock.now().toISOString(),
+      queue: { queued: 2, running: 1, failed24h: 1 },
+    });
+  });
+
+  it("refreshes only the heartbeat when the agent is unreachable", async () => {
+    await meterTick(ctx(), createMeteringState());
+    clock.advance(60_000);
+    const broken = makeCtx(t.db, clock, {
+      agent: {
+        stats: async () => {
+          throw new Error("agent down");
+        },
+      },
+    });
+    await expect(meterTick(broken, createMeteringState())).rejects.toThrow("agent down");
+    const [r] = await t.db.select().from(hostStats);
+    const p = r!.payload as StatsResponse & { worker: { heartbeatAt: string } };
+    expect(p.worker.heartbeatAt).toBe(clock.now().toISOString());
+    expect(p.host.cpus).toBe(16);
   });
 
   it("ignores workspaces that are not running", async () => {

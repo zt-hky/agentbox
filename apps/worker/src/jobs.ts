@@ -2,6 +2,11 @@ import { and, asc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { decrypt } from "@agentbox/core";
 import {
+  fetchLogsPayloadSchema,
+  type FetchLogsResult,
+  type InspectWorkspaceResult,
+} from "@agentbox/core/job-contracts";
+import {
   githubConnections,
   images,
   jobs,
@@ -32,7 +37,23 @@ export class NonRetryableError extends Error {
   }
 }
 
-type Handler = (ctx: Ctx, job: JobRow) => Promise<void>;
+/** A handler may return a value; it is stored in `jobs.result` (diagnostic jobs). */
+type Handler = (ctx: Ctx, job: JobRow) => Promise<unknown>;
+
+function requireRunning(ws: WorkspaceRow): void {
+  if (ws.status !== "running") throw new NonRetryableError(`workspace ${ws.slug} is not running`);
+}
+
+/** Diagnostics are point-in-time snapshots: any failure is final (never retried). */
+function diagnostic(handler: Handler): Handler {
+  return async (ctx, job) => {
+    try {
+      return await handler(ctx, job);
+    } catch (e) {
+      throw e instanceof NonRetryableError ? e : new NonRetryableError(errMessage(e));
+    }
+  };
+}
 
 const stopPayloadSchema = z.object({
   reason: z.enum(["idle", "max_awake", "credits_exhausted", "user", "admin", "suspended"]),
@@ -111,6 +132,78 @@ async function tailBuildLog(ctx: Ctx, jobId: string, imageRowId: string): Promis
   }
 }
 
+async function startWorkspace(
+  ctx: Ctx,
+  ws: WorkspaceRow,
+  plan: typeof plans.$inferSelect | null,
+): Promise<void> {
+  await ctx.db.update(workspaces).set({ status: "starting" }).where(eq(workspaces.id, ws.id));
+  try {
+    const [image] = await ctx.db.select().from(images).where(eq(images.status, "active"));
+    if (!image?.imageId)
+      throw new Error("no active workspace image; activate one in the admin console");
+    const { limits } = limitsOf(plan, ws.slug);
+    await ctx.agent.startWorkspace(ws.slug, {
+      imageId: image.imageId,
+      slot: ws.slot,
+      limits,
+      env: {
+        T3CODE_GATEWAY_IDENTITY_SECRET: decrypt(ws.identitySecretEnc, ctx.config.encryptionKey),
+        T3CODE_GATEWAY_IDENTITY_AUDIENCE: ws.slug,
+      },
+    });
+    const now = ctx.now();
+    await ctx.db
+      .update(workspaces)
+      .set({
+        status: "running",
+        imageId: image.imageId,
+        awakeSince: now,
+        lastActivityAt: now,
+        lastCpuUsec: 0n,
+        startFailures: 0,
+      })
+      .where(eq(workspaces.id, ws.id));
+    await addEvent(ctx.db, ws.id, "started", { imageId: image.imageId });
+  } catch (e) {
+    await ctx.db
+      .update(workspaces)
+      .set({ status: "error", startFailures: sql`${workspaces.startFailures} + 1` })
+      .where(eq(workspaces.id, ws.id));
+    await addEvent(ctx.db, ws.id, "start_failed", { error: errMessage(e) });
+    throw e;
+  }
+  if (ws.githubSyncPending) {
+    const [fresh] = await ctx.db.select().from(workspaces).where(eq(workspaces.id, ws.id));
+    if (fresh) {
+      try {
+        await reconcileGithub(ctx, fresh);
+      } catch (e) {
+        ctx.log.warn("github reconcile after start failed", { ws: ws.slug, error: errMessage(e) });
+      }
+    }
+  }
+}
+
+async function stopWorkspace(
+  ctx: Ctx,
+  ws: WorkspaceRow,
+  reason: z.infer<typeof stopPayloadSchema>["reason"] | "restart",
+): Promise<void> {
+  await ctx.db.update(workspaces).set({ status: "stopping" }).where(eq(workspaces.id, ws.id));
+  try {
+    await ctx.agent.stopWorkspace(ws.slug);
+  } catch (e) {
+    await ctx.db.update(workspaces).set({ status: "error" }).where(eq(workspaces.id, ws.id));
+    throw e;
+  }
+  await ctx.db
+    .update(workspaces)
+    .set({ status: "sleeping", awakeSince: null })
+    .where(eq(workspaces.id, ws.id));
+  await addEvent(ctx.db, ws.id, "stopped", { reason });
+}
+
 export const handlers: Record<JobRow["type"], Handler> = {
   async provision_tenant(ctx, job) {
     const { ws, plan } = await loadTenant(ctx, job);
@@ -127,74 +220,42 @@ export const handlers: Record<JobRow["type"], Handler> = {
     const { ws, plan } = await loadTenant(ctx, job);
     if (ws.status === "deleting" || ws.status === "deleted" || ws.status === "provisioning") return;
     if (ws.status === "running") return;
-    await ctx.db.update(workspaces).set({ status: "starting" }).where(eq(workspaces.id, ws.id));
-    try {
-      const [image] = await ctx.db.select().from(images).where(eq(images.status, "active"));
-      if (!image?.imageId)
-        throw new Error("no active workspace image; activate one in the admin console");
-      const { limits } = limitsOf(plan, ws.slug);
-      await ctx.agent.startWorkspace(ws.slug, {
-        imageId: image.imageId,
-        slot: ws.slot,
-        limits,
-        env: {
-          T3CODE_GATEWAY_IDENTITY_SECRET: decrypt(ws.identitySecretEnc, ctx.config.encryptionKey),
-          T3CODE_GATEWAY_IDENTITY_AUDIENCE: ws.slug,
-        },
-      });
-      const now = ctx.now();
-      await ctx.db
-        .update(workspaces)
-        .set({
-          status: "running",
-          imageId: image.imageId,
-          awakeSince: now,
-          lastActivityAt: now,
-          lastCpuUsec: 0n,
-          startFailures: 0,
-        })
-        .where(eq(workspaces.id, ws.id));
-      await addEvent(ctx.db, ws.id, "started", { imageId: image.imageId });
-    } catch (e) {
-      await ctx.db
-        .update(workspaces)
-        .set({ status: "error", startFailures: sql`${workspaces.startFailures} + 1` })
-        .where(eq(workspaces.id, ws.id));
-      await addEvent(ctx.db, ws.id, "start_failed", { error: errMessage(e) });
-      throw e;
-    }
-    if (ws.githubSyncPending) {
-      const [fresh] = await ctx.db.select().from(workspaces).where(eq(workspaces.id, ws.id));
-      if (fresh) {
-        try {
-          await reconcileGithub(ctx, fresh);
-        } catch (e) {
-          ctx.log.warn("github reconcile after start failed", {
-            ws: ws.slug,
-            error: errMessage(e),
-          });
-        }
-      }
-    }
+    await startWorkspace(ctx, ws, plan);
   },
 
   async stop_workspace(ctx, job) {
     const { reason } = stopPayloadSchema.parse(job.payload);
     const { ws } = await loadTenant(ctx, job);
     if (["sleeping", "provisioning", "deleting", "deleted"].includes(ws.status)) return;
-    await ctx.db.update(workspaces).set({ status: "stopping" }).where(eq(workspaces.id, ws.id));
-    try {
-      await ctx.agent.stopWorkspace(ws.slug);
-    } catch (e) {
-      await ctx.db.update(workspaces).set({ status: "error" }).where(eq(workspaces.id, ws.id));
-      throw e;
-    }
-    await ctx.db
-      .update(workspaces)
-      .set({ status: "sleeping", awakeSince: null })
-      .where(eq(workspaces.id, ws.id));
-    await addEvent(ctx.db, ws.id, "stopped", { reason });
+    await stopWorkspace(ctx, ws, reason);
   },
+
+  async restart_workspace(ctx, job) {
+    const { ws, plan } = await loadTenant(ctx, job);
+    if (ws.status === "deleting" || ws.status === "deleted" || ws.status === "provisioning") return;
+    if (ws.status !== "sleeping") await stopWorkspace(ctx, ws, "restart");
+    await startWorkspace(ctx, ws, plan);
+  },
+
+  fetch_logs: diagnostic(async (ctx, job): Promise<FetchLogsResult> => {
+    const { tail } = fetchLogsPayloadSchema.parse(job.payload);
+    const { ws } = await loadTenant(ctx, job);
+    requireRunning(ws);
+    const { log } = await ctx.agent.workspaceLogs(ws.slug, tail);
+    return { log, fetchedAt: ctx.now().toISOString() };
+  }),
+
+  inspect_workspace: diagnostic(async (ctx, job): Promise<InspectWorkspaceResult> => {
+    const { ws } = await loadTenant(ctx, job);
+    requireRunning(ws);
+    const top = await ctx.agent.workspaceTop(ws.slug);
+    return {
+      running: true,
+      startedAt: top.startedAt,
+      processes: top.processes,
+      fetchedAt: ctx.now().toISOString(),
+    };
+  }),
 
   async delete_tenant(ctx, job) {
     const { ws } = await loadTenant(ctx, job);
@@ -327,8 +388,16 @@ export class JobRunner {
   private async execute(job: JobRow): Promise<void> {
     const { ctx } = this;
     try {
-      await handlers[job.type](ctx, job);
-      await ctx.db.update(jobs).set({ status: "done", lastError: null }).where(eq(jobs.id, job.id));
+      const result = await handlers[job.type](ctx, job);
+      await ctx.db
+        .update(jobs)
+        .set({
+          status: "done",
+          lastError: null,
+          result: result === undefined ? null : result,
+          finishedAt: ctx.now(),
+        })
+        .where(eq(jobs.id, job.id));
     } catch (e) {
       const message = errMessage(e);
       const final = e instanceof NonRetryableError || job.attempts >= MAX_ATTEMPTS;
@@ -344,7 +413,7 @@ export class JobRunner {
           .update(jobs)
           .set(
             final
-              ? { status: "failed", lastError: message }
+              ? { status: "failed", lastError: message, finishedAt: ctx.now() }
               : {
                   status: "queued",
                   lastError: message,

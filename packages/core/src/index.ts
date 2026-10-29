@@ -6,3 +6,4 @@ export * from "./billing.ts";
 export * from "./idle.ts";
 export * from "./agent-api.ts";
 export * from "./settings.ts";
+export * from "./job-contracts.ts";

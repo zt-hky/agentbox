@@ -13,6 +13,7 @@ import {
   statsResponseSchema,
   updateLimitsRequestSchema,
   wsParamsSchema,
+  workspaceLogQuerySchema,
 } from "../src/agent-api.ts";
 
 const limits = { cpus: 2, memoryMb: 4096, pidsLimit: 2048 };
@@ -114,7 +115,23 @@ describe("agent-api response schemas", () => {
         diskTotalBytes: 1,
         diskFreeBytes: 1,
         loadavg: [0.1, 0.2, 0.3],
+        uptimeSec: 100,
+        kernel: "7.0.0-38-generic",
+        podmanVersion: "5.7.0",
+        services: [{ name: "agentbox-agent", active: true }],
+        firewall: { blockedPackets: 1, smtpPackets: 2, ipv6Packets: 3 },
+        publicIpBlocked: null,
       },
+      tenants: [
+        {
+          ws: "alice",
+          uid: 200001,
+          diskUsedBytes: 1,
+          diskLimitBytes: 2,
+          inodesUsed: 3,
+          inodesLimit: 4,
+        },
+      ],
       workspaces: [
         {
           ws: "alice",
@@ -125,6 +142,7 @@ describe("agent-api response schemas", () => {
           gatewayBytesDelta: 0,
           egressBytesDelta: 0,
           running: true,
+          startedAt: "2026-03-10T12:00:00.000Z",
         },
       ],
     };
@@ -153,5 +171,14 @@ describe("agent-api response schemas", () => {
     expect(startWorkspaceResponseSchema.parse(v)).toEqual(v);
     expect(errorResponseSchema.parse({ error: "boom" })).toEqual({ error: "boom" });
     expect(errorResponseSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("diagnostic schemas", () => {
+  it("log tail is bounded to 10..2000 and defaults to 200", () => {
+    expect(workspaceLogQuerySchema.parse({})).toEqual({ tail: 200 });
+    expect(workspaceLogQuerySchema.safeParse({ tail: "9" }).success).toBe(false);
+    expect(workspaceLogQuerySchema.safeParse({ tail: "2001" }).success).toBe(false);
+    expect(workspaceLogQuerySchema.parse({ tail: "2000" })).toEqual({ tail: 2000 });
   });
 });
