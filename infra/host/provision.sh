@@ -116,6 +116,23 @@ make_svc_user abx-cp /var/lib/agentbox-cp 240000000
 make_svc_user abx-build /var/lib/agentbox-build 240065536
 [ -e /var/lib/systemd/linger/abx-cp ] || { loginctl enable-linger abx-cp; log "linger on for abx-cp"; }
 
+# Readable names for user@<uid>.service in monitoring tools (Beszel lists system services).
+describe_user_manager() {
+  local name="$1" desc="$2" dir
+  dir="/etc/systemd/system/user@$(id -u "$name").service.d"
+  local want="[Unit]"$'\n'"Description=$desc"
+  [ "$(cat "$dir/agentbox-description.conf" 2>/dev/null)" = "$want" ] && return 0
+  install -d -m 0755 "$dir"
+  printf '%s\n' "$want" > "$dir/agentbox-description.conf"
+  chmod 0644 "$dir/agentbox-description.conf"
+  log "named user@$(id -u "$name").service: $desc"
+  RELOAD=1
+}
+RELOAD=0
+describe_user_manager abx-cp "AgentBox control plane (abx-cp)"
+describe_user_manager abx-build "AgentBox image builder (abx-build)"
+[ "$RELOAD" = 1 ] && systemctl daemon-reload
+
 # ---- 6.8 cgroup delegation
 install_file etc/systemd/system/user@.service.d/agentbox-delegate.conf 644; [ "$INSTALLED" = 1 ] && systemctl daemon-reload
 

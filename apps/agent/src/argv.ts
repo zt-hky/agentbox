@@ -147,6 +147,10 @@ export function clearQuotaArgv(uid: number): string[] {
 
 export function userDropin(ws: string, uid: number): string {
   return [
+    // Monitoring tools (Beszel) list user@<U>.service; the description names the workspace.
+    "[Unit]",
+    `Description=AgentBox workspace ${ws}`,
+    "",
     "[Service]",
     "PrivateTmp=yes",
     "ProtectSystem=strict",

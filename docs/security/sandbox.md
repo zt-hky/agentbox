@@ -261,6 +261,9 @@ The agent writes both from `userDropin()` / `sliceDropin()` in `apps/agent/src/a
 `/etc/systemd/system/user@<U>.service.d/agentbox.conf`:
 
 ```
+[Unit]
+Description=AgentBox workspace <ws>
+
 [Service]
 PrivateTmp=yes
 ProtectSystem=strict
