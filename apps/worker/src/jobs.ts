@@ -160,6 +160,8 @@ async function startWorkspace(
       env: {
         T3CODE_GATEWAY_IDENTITY_SECRET: decrypt(ws.identitySecretEnc, ctx.config.encryptionKey),
         T3CODE_GATEWAY_IDENTITY_AUDIENCE: ws.slug,
+        T3CODE_INSTANCE_NAME: ws.slug,
+        T3CODE_VSCODE_WEB_URL: `https://${ws.slug}-code.${ctx.config.baseDomain}`,
       },
     });
     const now = ctx.now();

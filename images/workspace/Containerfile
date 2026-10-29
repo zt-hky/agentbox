@@ -54,7 +54,9 @@ RUN bash -euo pipefail <<'SH'
 npm install -g "pnpm@$(node -p 'require("./package.json").packageManager.split("@")[1]')"
 pnpm install --frozen-lockfile
 node scripts/update-release-package-versions.ts 0.0.0-agentbox
-pnpm --filter @t3tools/web build
+# Labs defaults for new browsers; a user's own later choice is stored over them.
+VITE_CLIENT_SETTINGS_DEFAULTS='{"boringSidebarEnabled":true,"boringSidebarMultilineRows":true,"planModeEnabled":true,"contextWindowMeterEnabled":true}' \
+  pnpm --filter @t3tools/web build
 # tsdown server bundle, then web client copied to apps/server/dist/client.
 node apps/server/scripts/cli.ts build --verbose
 node scripts/apply-web-brand-assets.ts production apps/server/dist/client

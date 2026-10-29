@@ -176,7 +176,12 @@ describe("job handlers", () => {
       imageId: IMAGE_ID,
       slot: 1,
       limits: { cpus: 1, memoryMb: 2048, pidsLimit: 512, inodes: 500000 },
-      env: { T3CODE_GATEWAY_IDENTITY_SECRET: w.secret, T3CODE_GATEWAY_IDENTITY_AUDIENCE: "alice" },
+      env: {
+        T3CODE_GATEWAY_IDENTITY_SECRET: w.secret,
+        T3CODE_GATEWAY_IDENTITY_AUDIENCE: "alice",
+        T3CODE_INSTANCE_NAME: "alice",
+        T3CODE_VSCODE_WEB_URL: "https://alice-code.agentbox.io.vn",
+      },
     });
     const row = await ws(w.workspaceId);
     expect(row).toMatchObject({
