@@ -27,24 +27,26 @@ when it sleeps. Night is the setting (developers work late; the photography is n
 aurora); light is the product. This gives one memorable move: the glowing AgentBox object.
 
 Palette (named, hex):
-| Token | Hex | Role |
-|---|---|---|
-| Night | `#05070E` | page base in dark zones (deliberately blue-black, the night sky, not a grey) |
-| Deep | `#0C1120` | raised panels on Night |
-| Iris | `#6D5EFC` | brand primary: CTAs, links, the box's core light, focus ring |
-| Aurora | `#46E6C3` | "awake/running" light, live data, success |
-| Ember | `#FFB54A` | warmth: city light, "waking/starting", rare highlights (≤3 uses per page) |
-| Cloud | `#F4F6FA` | light zones (pricing, FAQ) and light-mode app background |
-| Ink | `#0E1324` | text on Cloud; Mist `#A3ADC2` = secondary text on Night (≥4.5:1) |
-Why this is on trend for the category without being a template: AI tools 2025–26 converge on deep
-night bases with an electric violet-blue (Linear, Codex, Solana) — Iris places AgentBox in that family;
-Aurora (a cool mint) carries the "it's alive" status meaning that a sandbox product needs and that
-competitors use as their whole identity (Codespaces green, E2B red) — here it is a state colour, not the
-brand; Ember is the local, human counterpoint (Saigon street light) nobody in the category uses.
-Gradient (only on the box light and the primary CTA hover): Iris → Aurora at 135°.
-Errors: `#FF5C70`. Hairlines: `rgba(255,255,255,0.08)` on Night, `rgba(14,19,36,0.10)` on Cloud.
+
+| Token                                                                                                    | Hex       | Role                                                                         |
+| -------------------------------------------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------- |
+| Night                                                                                                    | `#05070E` | page base in dark zones (deliberately blue-black, the night sky, not a grey) |
+| Deep                                                                                                     | `#0C1120` | raised panels on Night                                                       |
+| Iris                                                                                                     | `#6D5EFC` | brand primary: CTAs, links, the box's core light, focus ring                 |
+| Aurora                                                                                                   | `#46E6C3` | "awake/running" light, live data, success                                    |
+| Ember                                                                                                    | `#FFB54A` | warmth: city light, "waking/starting", rare highlights (≤3 uses per page)    |
+| Cloud                                                                                                    | `#F4F6FA` | light zones (pricing, FAQ) and light-mode app background                     |
+| Ink                                                                                                      | `#0E1324` | text on Cloud; Mist `#A3ADC2` = secondary text on Night (≥4.5:1)             |
+| Why this is on trend for the category without being a template: AI tools 2025–26 converge on deep        |
+| night bases with an electric violet-blue (Linear, Codex, Solana) — Iris places AgentBox in that family;  |
+| Aurora (a cool mint) carries the "it's alive" status meaning that a sandbox product needs and that       |
+| competitors use as their whole identity (Codespaces green, E2B red) — here it is a state colour, not the |
+| brand; Ember is the local, human counterpoint (Saigon street light) nobody in the category uses.         |
+| Gradient (only on the box light and the primary CTA hover): Iris → Aurora at 135°.                       |
+| Errors: `#FF5C70`. Hairlines: `rgba(255,255,255,0.08)` on Night, `rgba(14,19,36,0.10)` on Cloud.         |
 
 Type:
+
 - **Be Vietnam Pro** (variable, Google Fonts, self-hosted subset incl. Vietnamese): a geometric-grotesk
   in the SF Pro spirit, designed in Vietnam — a quiet signal of where AgentBox is built and ready for a
   Vietnamese edition. Display 600, tracking -0.02em at ≥64 px, -0.012em at 40–56 px; body 400/500.
@@ -53,7 +55,8 @@ Type:
   label (mono) 13/12. Line-height 1.04 on display, 1.45 on body. Hand-broken headlines, ending with a period.
 
 Shape & depth: radius 28 px (stage cards), 18 (cards), 12 (controls), 999 (pills). Glass = `Deep` at 72%
-+ `backdrop-filter: blur(20px) saturate(140%)` + 1 px hairline. One glow per scene, never stacked.
+
+- `backdrop-filter: blur(20px) saturate(140%)` + 1 px hairline. One glow per scene, never stacked.
 
 Logo: an isometric box drawn with three faces; the top face is a slot of Iris→Aurora light. Wordmark
 "AgentBox" in Be Vietnam Pro 600, -0.02em. Delivered as SVG (mark, wordmark, favicon, OG image).
