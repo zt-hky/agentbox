@@ -29,6 +29,20 @@
       "when": 1793268460663,
       "tag": "0003_job_results",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793276711626,
+      "tag": "0004_plans_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793276718380,
+      "tag": "0005_plans_v2_data",
+      "breakpoints": true
     }
   ]
 }

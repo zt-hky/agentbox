@@ -13,7 +13,7 @@ import type { Db } from "./db-types";
 import { UserError } from "./errors";
 import { enqueueWorkspaceJob } from "./jobs";
 import { checkSlug } from "./slug";
-import { addMonths } from "./time";
+import { addDays, addMonths } from "./time";
 
 export interface GrantInput {
   userId: string;
@@ -29,6 +29,11 @@ export interface GrantResult {
   workspaceId: string;
   slot: number;
   userId: string;
+}
+
+/** A plan with `trialDays` starts a trial at `now`; any other plan has none. */
+export function trialEnd(plan: { trialDays: number | null }, now: Date): Date | null {
+  return plan.trialDays ? addDays(now, plan.trialDays) : null;
 }
 
 function isUniqueViolation(e: unknown): boolean {
@@ -92,9 +97,10 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
       await tx.update(user).set({ accessStatus: "active" }).where(eq(user.id, target.id));
 
       const cycleEnd = addMonths(now, 1);
+      const trialEndsAt = trialEnd(plan, now);
       await tx
         .insert(subscriptions)
-        .values({ userId: target.id, planId: plan.id, cycleStart: now, cycleEnd })
+        .values({ userId: target.id, planId: plan.id, cycleStart: now, cycleEnd, trialEndsAt })
         .onConflictDoUpdate({
           target: subscriptions.userId,
           set: {
@@ -104,6 +110,9 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
             usedRuntimeHours: 0,
             usedCpuCoreHours: 0,
             usedMemGbHours: 0,
+            trialEndsAt,
+            dayStart: null,
+            usedTodayRuntimeHours: 0,
           },
         });
       await tx
@@ -135,6 +144,7 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
           slug: input.slug,
           slot,
           planId: plan.id,
+          trialEndsAt: trialEndsAt?.toISOString() ?? null,
         },
         ip: input.ip,
       });

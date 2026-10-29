@@ -8,12 +8,15 @@ import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Section } from "@/components/section";
+import { KeyValueList } from "@/components/key-value-list";
 import { Badge } from "@/components/ui/badge";
 import { WorkspaceModule } from "@/components/workspace-module";
 import { loadRack } from "@/lib/admin/workspaces-ops";
 import { baseDomain } from "@/lib/env";
+import { formatDateTime } from "@/lib/format";
 import { formatCredits } from "@/lib/money";
-import { creditLabel, planOptions } from "@/lib/queries";
+import { planStatus, gateMessage } from "@/lib/plan-status";
+import { billingDisplay, planOptions } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { slugFromEmail } from "@/lib/slug";
 import { loadBalance, loadSubscription } from "@/lib/user-data";
@@ -33,10 +36,10 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
   const target = (await db.select().from(user).where(eq(user.id, id)).limit(1))[0];
   if (!target) notFound();
 
-  const [sub, balance, label, ws, ledger, plans] = await Promise.all([
+  const [sub, balance, display, ws, ledger, plans] = await Promise.all([
     loadSubscription(id),
     loadBalance(id),
-    creditLabel(),
+    billingDisplay(),
     db.select().from(workspaces).where(eq(workspaces.userId, id)).limit(1),
     db
       .select()
@@ -46,7 +49,12 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
       .limit(200),
     planOptions(),
   ]);
+  const { label, creditValueVnd } = display;
   const now = new Date();
+  const status = sub
+    ? planStatus({ plan: sub.plan, sub: sub.sub, balanceMicro: balance, now })
+    : null;
+  const blocked = status && sub ? gateMessage(status.gate, sub.plan) : null;
   const rack = ws[0] ? (await loadRack(db, now, { userId: id }))[0] : undefined;
   const rows: LedgerRow[] = ledger.map((l) => ({
     id: l.id,
@@ -103,7 +111,14 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
           <RoleControl userId={target.id} role={target.role ?? "user"} isSelf={isSelf} />
           {workspace ? (
             <>
-              <PlanControl userId={target.id} planId={sub?.plan.id ?? null} plans={plans.options} />
+              <PlanControl
+                userId={target.id}
+                planId={sub?.plan.id ?? null}
+                plans={plans.options}
+                balanceMicro={balance.toString()}
+                label={label}
+                creditValueVnd={creditValueVnd}
+              />
               <AccessControl
                 userId={target.id}
                 accessStatus={target.accessStatus}
@@ -135,8 +150,46 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
         </div>
       </Section>
 
+      {sub && status ? (
+        <Section
+          title="Subscription"
+          description={`${sub.plan.name}. Cycle ${formatDateTime(sub.sub.cycleStart)} to ${formatDateTime(sub.sub.cycleEnd)}.`}
+        >
+          <KeyValueList
+            items={[
+              ...(sub.plan.kind === "free"
+                ? [
+                    {
+                      label: "Trial ends",
+                      value: sub.sub.trialEndsAt
+                        ? `${formatDateTime(sub.sub.trialEndsAt)} (${status.trialText})`
+                        : "No trial end set",
+                    },
+                    ...(sub.plan.dailyRuntimeHours !== null
+                      ? [
+                          {
+                            label: "Runtime today",
+                            value: `${+(status.usedTodayHours ?? 0).toFixed(2)} of ${sub.plan.dailyRuntimeHours} h (Vietnam time day)`,
+                          },
+                        ]
+                      : []),
+                  ]
+                : []),
+              {
+                label: "Included runtime used",
+                value: `${+sub.sub.usedRuntimeHours.toFixed(2)} of ${sub.plan.allowanceRuntimeHours} h`,
+              },
+              {
+                label: "Can wake",
+                value: status.gate.canWake ? "Yes" : (blocked ?? "No"),
+              },
+            ]}
+          />
+        </Section>
+      ) : null}
+
       <Section
-        title={`Credits: ${formatCredits(balance, label)}`}
+        title={`Credits: ${formatCredits(balance, label, creditValueVnd)}`}
         description="Adding records an admin top-up; removing records a negative adjustment. A note is required."
       >
         <CreditsForm userId={target.id} label={label} />

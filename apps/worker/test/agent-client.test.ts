@@ -27,7 +27,7 @@ describe("agent client", () => {
       .startWorkspace("alice", {
         imageId: IMAGE_ID,
         slot: 1,
-        limits: { cpus: 1, memoryMb: 512, pidsLimit: 100 },
+        limits: { cpus: 1, memoryMb: 512, pidsLimit: 100, inodes: 4000000 },
         env: { T3CODE_GATEWAY_IDENTITY_SECRET: "s", T3CODE_GATEWAY_IDENTITY_AUDIENCE: "alice" },
       })
       .catch((e: unknown) => e);

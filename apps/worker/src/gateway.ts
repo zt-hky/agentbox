@@ -1,13 +1,15 @@
 import http from "node:http";
 import { and, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
-  canWake,
+  BILLING_TIME_ZONE,
   decrypt,
   hashToken,
   parseWorkspaceHost,
+  planGate,
   ports,
   randomToken,
   signGatewayIdentity,
+  type PlanGateResult,
   type ServiceName,
 } from "@agentbox/core";
 import { readSetting } from "@agentbox/db/client";
@@ -21,10 +23,22 @@ import {
   workspaceSessions,
   workspaces,
 } from "@agentbox/db/schema";
-import { capacityPage, creditsPage, failedPage, messagePage, wakingPage } from "./html.ts";
+import {
+  capacityPage,
+  creditsPage,
+  dailyLimitPage,
+  failedPage,
+  messagePage,
+  trialEndedPage,
+  wakingPage,
+} from "./html.ts";
 import { errMessage } from "./log.ts";
 import { enqueueJob } from "./queue.ts";
 import type { Ctx } from "./types.ts";
+
+function retryAfterSeconds(resumesAt: Date | undefined, now: Date): number {
+  return resumesAt ? Math.max(1, Math.ceil((resumesAt.getTime() - now.getTime()) / 1000)) : 3600;
+}
 
 export const SESSION_COOKIE = "__Host-abx_ws";
 export const SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
@@ -195,7 +209,12 @@ export function createGateway(ctx: Ctx): http.RequestListener {
     }
   }
 
-  async function canStart(userId: string): Promise<{ ok: boolean; memoryLimitMb: number }> {
+  async function canStart(
+    userId: string,
+  ): Promise<
+    | { gate: PlanGateResult; memoryLimitMb: number; dailyRuntimeHours: number | null }
+    | { gate: null; memoryLimitMb: 0; dailyRuntimeHours: null }
+  > {
     const [row] = await db
       .select({
         plan: plans,
@@ -207,17 +226,19 @@ export function createGateway(ctx: Ctx): http.RequestListener {
       .leftJoin(creditBalances, eq(creditBalances.userId, subscriptions.userId))
       .where(eq(subscriptions.userId, userId))
       .limit(1);
-    if (!row) return { ok: false, memoryLimitMb: 0 };
-    const ok = canWake({
+    if (!row) return { gate: null, memoryLimitMb: 0, dailyRuntimeHours: null };
+    const gate = planGate({
+      plan: row.plan,
+      subscription: row.sub,
       balanceMicro: row.balance ?? 0n,
-      planKind: row.plan.kind,
-      allowanceRemaining: {
-        runtimeHours: row.plan.allowanceRuntimeHours - row.sub.usedRuntimeHours,
-        cpuCoreHours: row.plan.allowanceCpuCoreHours - row.sub.usedCpuCoreHours,
-        memGbHours: row.plan.allowanceMemGbHours - row.sub.usedMemGbHours,
-      },
+      now: ctx.now(),
+      timeZone: BILLING_TIME_ZONE,
     });
-    return { ok, memoryLimitMb: row.plan.memoryLimitMb };
+    return {
+      gate,
+      memoryLimitMb: row.plan.memoryLimitMb,
+      dailyRuntimeHours: row.plan.dailyRuntimeHours,
+    };
   }
 
   async function overCapacity(thisMemoryMb: number): Promise<boolean> {
@@ -289,11 +310,23 @@ export function createGateway(ctx: Ctx): http.RequestListener {
 
     if (ws.status === "sleeping" || ws.status === "error") {
       const billing = await canStart(ws.userId);
-      if (!billing.ok) {
+      const billingUrl = `${config.appOrigin}/billing`;
+      if (!billing.gate || billing.gate.reason === "credits_exhausted") {
+        return sendHtml(res, 402, creditsPage({ ws: ws.slug, billingUrl }));
+      }
+      if (billing.gate.reason === "trial_ended") {
+        return sendHtml(res, 402, trialEndedPage({ ws: ws.slug, billingUrl }));
+      }
+      if (billing.gate.reason === "daily_limit") {
         return sendHtml(
           res,
-          402,
-          creditsPage({ ws: ws.slug, billingUrl: `${config.appOrigin}/billing` }),
+          429,
+          dailyLimitPage({
+            ws: ws.slug,
+            hours: billing.dailyRuntimeHours ?? 0,
+            billingUrl,
+          }),
+          { "retry-after": String(retryAfterSeconds(billing.gate.resumesAt, ctx.now())) },
         );
       }
       if (await overCapacity(billing.memoryLimitMb)) {

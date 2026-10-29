@@ -16,7 +16,7 @@ import {
   workspaceLogQuerySchema,
 } from "../src/agent-api.ts";
 
-const limits = { cpus: 2, memoryMb: 4096, pidsLimit: 2048 };
+const limits = { cpus: 2, memoryMb: 4096, pidsLimit: 2048, inodes: 4000000 };
 const img = "a".repeat(64);
 
 describe("agent-api request schemas", () => {
@@ -41,6 +41,12 @@ describe("agent-api request schemas", () => {
       false,
     ],
     ["limits ok", updateLimitsRequestSchema, { diskGb: 10, limits }, true],
+    [
+      "limits inodes 0",
+      updateLimitsRequestSchema,
+      { diskGb: 10, limits: { ...limits, inodes: 0 } },
+      false,
+    ],
     ["limits missing", updateLimitsRequestSchema, { diskGb: 10 }, false],
     [
       "start ok",
@@ -180,5 +186,18 @@ describe("diagnostic schemas", () => {
     expect(workspaceLogQuerySchema.safeParse({ tail: "9" }).success).toBe(false);
     expect(workspaceLogQuerySchema.safeParse({ tail: "2001" }).success).toBe(false);
     expect(workspaceLogQuerySchema.parse({ tail: "2000" })).toEqual({ tail: 2000 });
+  });
+});
+
+describe("tenantLimits inodes", () => {
+  it("defaults to 4000000 and keeps an explicit value", () => {
+    const rest = { cpus: 2, memoryMb: 4096, pidsLimit: 2048 };
+    expect(updateLimitsRequestSchema.parse({ diskGb: 10, limits: rest }).limits.inodes).toBe(
+      4_000_000,
+    );
+    expect(
+      updateLimitsRequestSchema.parse({ diskGb: 10, limits: { ...rest, inodes: 500_000 } }).limits
+        .inodes,
+    ).toBe(500_000);
   });
 });

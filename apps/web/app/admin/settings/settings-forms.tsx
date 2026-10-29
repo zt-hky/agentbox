@@ -153,13 +153,17 @@ function BillingForm({
 }) {
   const form = useForm<z.input<typeof billingSettingsSchema>>({
     resolver: zodResolver(billingSettingsSchema),
-    defaultValues: initial ?? { creditLabel: "credit", defaultPlanId: plans[0]?.id ?? "" },
+    defaultValues: initial ?? {
+      creditLabel: "credit",
+      defaultPlanId: plans[0]?.id ?? "",
+      creditValueVnd: 1000,
+    },
   });
   const { pending, submit } = useSave<z.input<typeof billingSettingsSchema>>("billing");
   return (
     <Section
       title="Billing"
-      description="The default plan is used for downgrades when a package cannot be renewed."
+      description="The credit label and its value in dong are for display. The default plan is the fallback when no plan is chosen."
     >
       <Form {...form}>
         <form className="grid gap-4 md:grid-cols-2" onSubmit={form.handleSubmit(submit)}>
@@ -196,6 +200,28 @@ function BillingForm({
                     ))}
                   </SelectContent>
                 </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="creditValueVnd"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Value of one credit (₫)</FormLabel>
+                <FormControl>
+                  <Input
+                    inputMode="numeric"
+                    name={field.name}
+                    ref={field.ref}
+                    onBlur={field.onBlur}
+                    value={String(field.value ?? "")}
+                    onChange={(e) =>
+                      field.onChange(e.target.value === "" ? undefined : Number(e.target.value))
+                    }
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}

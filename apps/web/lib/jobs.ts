@@ -2,7 +2,14 @@ import { jobs } from "@agentbox/db/schema";
 import type { DbLike } from "./db-types";
 
 export type StopReason =
-  "idle" | "max_awake" | "credits_exhausted" | "user" | "admin" | "suspended";
+  | "idle"
+  | "max_awake"
+  | "credits_exhausted"
+  | "daily_limit"
+  | "trial_ended"
+  | "user"
+  | "admin"
+  | "suspended";
 
 /** Enqueue a workspace job; the partial unique index dedupes queued/running duplicates. */
 export async function enqueueWorkspaceJob(

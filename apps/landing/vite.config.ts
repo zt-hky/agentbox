@@ -11,13 +11,19 @@ interface Plan {
   cpu: number;
   memoryMb: number;
   diskGb: number;
+  inodes: number;
   pids: number;
+  trialDays: number | null;
+  dailyRuntimeHours: number | null;
+  maxAwakeHours: number | null;
+  idleTimeoutMinutes: number | null;
   allowanceRuntimeHours: number;
   allowanceCpuCoreHours: number;
   allowanceMemGbHours: number;
 }
 interface PlansFile {
   creditLabel: string;
+  creditValueVnd: number;
   prices: { runtimePerHour: number; cpuCorePerHour: number; memGbPerHour: number };
   plans: Plan[];
 }
@@ -69,47 +75,75 @@ function picture(spec: string): string {
 function plansHtml(): string {
   const data = JSON.parse(readFileSync(here("./src/data/plans.json"), "utf8")) as PlansFile;
   const label = data.creditLabel;
-  const credits = (micro: number) => {
-    const v = micro / 1_000_000;
-    return `${num(v)} ${label}${v === 1 ? "" : "s"}`;
-  };
-  const cols = data.plans
-    .map((p) => {
-      const priced = p.monthlyPriceMicro > 0;
-      const price = priced
-        ? credits(p.monthlyPriceMicro)
-        : p.kind === "payg"
-          ? "No monthly fee"
-          : `0 ${label}s`;
-      const per = priced
-        ? "per month"
-        : p.kind === "payg"
-          ? "Pay only for what runs"
-          : "Included with access";
-      const allowance =
-        p.allowanceRuntimeHours > 0
-          ? `<li><b>${num(p.allowanceRuntimeHours)} h</b><span>runtime a month</span></li><li><b>${num(p.allowanceCpuCoreHours)}</b><span>CPU core-hours</span></li><li><b>${num(p.allowanceMemGbHours)}</b><span>GB-hours of memory</span></li>`
-          : `<li class="none"><b>Metered</b><span>from your credit balance, measured every minute</span></li>`;
-      const mem = p.memoryMb >= 1024 ? `${num(p.memoryMb / 1024)} GB` : `${p.memoryMb} MB`;
-      return `<article class="plan${p.kind === "package" ? " is-feature" : ""}">
+  const vndPerCredit = data.creditValueVnd;
+  const vnd = (n: number) =>
+    `${Math.round(n)
+      .toString()
+      .replace(/\B(?=(\d{3})+(?!\d))/g, ".")} ₫`;
+  const creditsOf = (micro: number) => micro / 1_000_000;
+  const credits = (v: number) => `${num(v)} ${label}${v === 1 ? "" : "s"}`;
+  const hours = (h: number) => `${num(h)} h`;
+  const mins = (m: number) => (m % 60 === 0 ? `${m / 60} h` : `${m} min`);
+  const mem = (mb: number) => (mb >= 1024 ? `${num(mb / 1024)} GB` : `${mb} MB`);
+  const cards = data.plans
+    .map((p, i) => {
+      const monthly = creditsOf(p.monthlyPriceMicro);
+      const trial = p.trialDays !== null;
+      const feature = p.kind === "package" && i === 1;
+      const tagline = trial
+        ? "Try a full workspace before you pay."
+        : feature
+          ? "A workspace for steady daily work."
+          : "Room for heavier agents.";
+      const price = monthly > 0 ? vnd(monthly * vndPerCredit) : "0 ₫";
+      const per = trial ? `for ${p.trialDays} days` : `per month · ${credits(monthly)}`;
+      const perDay = num(Math.round((p.allowanceRuntimeHours / 30) * 2) / 2);
+      const rows: [string, string][] = [
+        ["vCPU", num(p.cpu)],
+        ["Memory", mem(p.memoryMb)],
+        ["Disk", `${num(p.diskGb)} GB`],
+        [
+          "Included runtime",
+          trial
+            ? `${hours(p.allowanceRuntimeHours)} in total`
+            : `${hours(p.allowanceRuntimeHours)} a month`,
+        ],
+        trial && p.dailyRuntimeHours !== null
+          ? ["Daily cap", `${hours(p.dailyRuntimeHours)} a day`]
+          : ["That is about", `${perDay} h a day`],
+        ["Extra runtime", trial ? "none during trial" : "billed in credits"],
+        [
+          "Sleeps when idle",
+          p.idleTimeoutMinutes !== null ? mins(p.idleTimeoutMinutes) : "default",
+        ],
+        ["Max awake at once", p.maxAwakeHours !== null ? hours(p.maxAwakeHours) : "default"],
+      ];
+      const list = rows.map(([k, v]) => `<li><span>${esc(k)}</span><b>${esc(v)}</b></li>`).join("");
+      const cta = trial ? "Request access" : `Request access for ${esc(p.name)}`;
+      return `<article class="plan${feature ? " is-feature" : ""}">
+  ${feature ? '<p class="plan-flag mono">[ RECOMMENDED ]</p>' : ""}
   <h3>${esc(p.name)}</h3>
+  <p class="plan-tag">${esc(tagline)}</p>
   <p class="plan-price"><span>${esc(price)}</span><small>${esc(per)}</small></p>
-  <ul class="plan-limits">
-    <li><b>${num(p.cpu)}</b><span>CPU cores</span></li>
-    <li><b>${mem}</b><span>memory</span></li>
-    <li><b>${num(p.diskGb)} GB</b><span>disk</span></li>
-    <li><b>${p.pids}</b><span>processes</span></li>
-  </ul>
-  <p class="plan-sub">Monthly allowance</p>
-  <ul class="plan-allow">${allowance}</ul>
-  <a class="btn btn-${p.kind === "package" ? "primary" : "ghost"}" href="${APP_LOGIN}">Request access</a>
+  <ul class="plan-limits">${list}</ul>
+  <a class="btn btn-${feature ? "primary" : "ghost"}" href="${APP_LOGIN}">${cta}</a>
 </article>`;
     })
     .join("\n");
   const r = data.prices;
-  const rate = (m: number) => num(m / 1_000_000);
-  const rates = `<p class="rates"><span class="mono">[ METERED ]</span><span>${rate(r.runtimePerHour)} ${label}s per runtime hour</span><i></i><span>${rate(r.cpuCorePerHour)} per CPU core-hour</span><i></i><span>${rate(r.memGbPerHour)} per GB-hour of memory</span></p>`;
-  return `<div class="plans">${cols}</div>${rates}`;
+  const rate = (m: number) => vnd((m / 1_000_000) * vndPerCredit);
+  const extra = `<div class="extra">
+  <div class="extra-head">
+    <p class="mono extra-eyebrow">[ EXTRA USAGE WITH CREDITS ]</p>
+    <p class="extra-note">Past your included hours, usage is metered every minute and drawn from your credit balance. 1 ${esc(label)} = ${vnd(vndPerCredit)}. After the trial, a workspace runs on credits alone.</p>
+  </div>
+  <dl class="extra-rates">
+    <div><dt>Runtime</dt><dd>${rate(r.runtimePerHour)}<small>per hour</small></dd></div>
+    <div><dt>CPU</dt><dd>${rate(r.cpuCorePerHour)}<small>per core-hour</small></dd></div>
+    <div><dt>Memory</dt><dd>${rate(r.memGbPerHour)}<small>per GB-hour</small></dd></div>
+  </dl>
+</div>`;
+  return `<div class="plans">${cards}</div>${extra}`;
 }
 
 function agentboxHtml(): Plugin {

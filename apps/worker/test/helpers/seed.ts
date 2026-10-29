@@ -41,7 +41,7 @@ export async function seedWorld(
   const slug = o.slug ?? "alice";
   const slot = o.slot ?? 1;
   const now = o.now ?? new Date();
-  const planId = o.planId ?? (await planByName(db, o.plan ?? "Free")).id;
+  const planId = o.planId ?? (await planByName(db, o.plan ?? "Free trial")).id;
   const userId = `u_${slug}`;
   const email = `${slug}@example.com`;
   const secret = randomToken();

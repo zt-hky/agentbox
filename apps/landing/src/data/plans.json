@@ -1,44 +1,64 @@
 {
-  "source": "production",
+  "source": "database",
   "fetchedAt": "2026-10-29",
   "creditLabel": "credit",
-  "prices": { "runtimePerHour": 500000, "cpuCorePerHour": 200000, "memGbPerHour": 50000 },
+  "creditValueVnd": 1000,
+  "prices": {
+    "runtimePerHour": 600000,
+    "cpuCorePerHour": 400000,
+    "memGbPerHour": 150000
+  },
   "plans": [
     {
-      "name": "Free",
+      "name": "Free trial",
       "kind": "free",
       "monthlyPriceMicro": 0,
-      "cpu": 2,
-      "memoryMb": 1024,
+      "cpu": 1,
+      "memoryMb": 2048,
       "diskGb": 5,
+      "inodes": 500000,
       "pids": 512,
-      "allowanceRuntimeHours": 8,
-      "allowanceCpuCoreHours": 8,
-      "allowanceMemGbHours": 10
-    },
-    {
-      "name": "Pay as you go",
-      "kind": "payg",
-      "monthlyPriceMicro": 0,
-      "cpu": 4,
-      "memoryMb": 8192,
-      "diskGb": 30,
-      "pids": 2048,
-      "allowanceRuntimeHours": 0,
-      "allowanceCpuCoreHours": 0,
-      "allowanceMemGbHours": 0
+      "trialDays": 5,
+      "dailyRuntimeHours": 6,
+      "maxAwakeHours": 6,
+      "idleTimeoutMinutes": 15,
+      "allowanceRuntimeHours": 30,
+      "allowanceCpuCoreHours": 30,
+      "allowanceMemGbHours": 60
     },
     {
       "name": "Pro",
       "kind": "package",
-      "monthlyPriceMicro": 100000000,
+      "monthlyPriceMicro": 139000000,
+      "cpu": 2,
+      "memoryMb": 4096,
+      "diskGb": 20,
+      "inodes": 2000000,
+      "pids": 2048,
+      "trialDays": null,
+      "dailyRuntimeHours": null,
+      "maxAwakeHours": 12,
+      "idleTimeoutMinutes": 30,
+      "allowanceRuntimeHours": 200,
+      "allowanceCpuCoreHours": 400,
+      "allowanceMemGbHours": 800
+    },
+    {
+      "name": "Max",
+      "kind": "package",
+      "monthlyPriceMicro": 249000000,
       "cpu": 4,
       "memoryMb": 8192,
       "diskGb": 50,
-      "pids": 2048,
-      "allowanceRuntimeHours": 160,
-      "allowanceCpuCoreHours": 240,
-      "allowanceMemGbHours": 480
+      "inodes": 4000000,
+      "pids": 4096,
+      "trialDays": null,
+      "dailyRuntimeHours": null,
+      "maxAwakeHours": 24,
+      "idleTimeoutMinutes": 60,
+      "allowanceRuntimeHours": 360,
+      "allowanceCpuCoreHours": 1440,
+      "allowanceMemGbHours": 2880
     }
   ]
 }

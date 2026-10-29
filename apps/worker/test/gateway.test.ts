@@ -233,8 +233,9 @@ describe("authorize: not running", () => {
     expect(await startJobs()).toHaveLength(0);
   });
 
-  it("a positive balance lets an exhausted allowance start", async () => {
+  it("a positive balance lets an exhausted package allowance start", async () => {
     const w = await seedWorld(t.db, {
+      plan: "Pro",
       status: "sleeping",
       balance: 1n,
       subscription: { usedRuntimeHours: 1000, usedCpuCoreHours: 1000, usedMemGbHours: 1000 },
@@ -247,24 +248,110 @@ describe("authorize: not running", () => {
   });
 
   it("answers 503 Retry-After 30 when running memory + this plan exceeds the ratio", async () => {
-    const bob = await seedWorld(t.db, { slug: "bobby", slot: 2, status: "running" }); // Free: 4096 MB
+    const bob = await seedWorld(t.db, { slug: "bobby", slot: 2, status: "running" }); // Free trial: 2048 MB
     expect(bob.slug).toBe("bobby");
-    const w = await seedWorld(t.db, { status: "sleeping" }); // Free: 4096 MB
+    const w = await seedWorld(t.db, { status: "sleeping" }); // Free trial: 2048 MB
     const s = await session(w, T3);
     const mem = (mb: number) => ({ host: { memTotalBytes: mb * 1024 * 1024 } });
-    // limit = 0.8 * 10000 MB = 8000 MB < 4096 + 4096 = 8192
-    await t.db.insert(hostStats).values({ id: 1, payload: mem(10_000) });
+    // limit = 0.8 * 5000 MB = 4000 MB < 2048 + 2048 = 4096
+    await t.db.insert(hostStats).values({ id: 1, payload: mem(5_000) });
     const r = await get("/internal/authorize", { host: T3, cookie: s.cookie, ...NAV });
     expect(r.status).toBe(503);
     expect(r.headers["retry-after"]).toBe("30");
     expect(r.body).toContain("Server at capacity");
     expect(await startJobs()).toHaveLength(0);
-    // 8192 <= 0.8 * 11000 = 8800 → fits
-    await t.db.update(hostStats).set({ payload: mem(11_000) });
+    // 4096 <= 0.8 * 5200 = 4160 → fits
+    await t.db.update(hostStats).set({ payload: mem(5_200) });
     expect((await get("/internal/authorize", { host: T3, cookie: s.cookie, ...NAV })).status).toBe(
       503,
     );
     expect(await startJobs()).toHaveLength(1);
+  });
+
+  describe("plan gate", () => {
+    const wake = async (w: World) => {
+      const s = await session(w, T3);
+      return get("/internal/authorize", { host: T3, cookie: s.cookie, ...NAV });
+    };
+
+    it("daily limit: 429 with the resume time and upgrade text, no start job", async () => {
+      // 2026-03-10T12:00Z = 19:00 on the 10th in UTC+7
+      const w = await seedWorld(t.db, {
+        status: "sleeping",
+        subscription: { dayStart: "2026-03-10", usedTodayRuntimeHours: 6 },
+      });
+      const r = await wake(w);
+      expect(r.status).toBe(429);
+      expect(r.body).toContain("Daily limit reached");
+      expect(r.body).toContain("Today's 6 hours are used.");
+      expect(r.body).toContain("00:00 (Vietnam time)");
+      expect(r.body).toContain(`https://app.${D}/billing`);
+      // 00:00 on the 11th (UTC+7) is 17:00Z: 5 h away
+      expect(r.headers["retry-after"]).toBe(String(5 * 3600));
+      expect(await startJobs()).toHaveLength(0);
+    });
+
+    it("daily limit applies one second before local midnight and lifts at 00:00 Vietnam time", async () => {
+      const w = await seedWorld(t.db, {
+        status: "sleeping",
+        subscription: { dayStart: "2026-03-10", usedTodayRuntimeHours: 6 },
+      });
+      clock.set(new Date("2026-03-10T16:59:59.000Z"));
+      const blocked = await wake(w);
+      expect(blocked.status).toBe(429);
+      expect(blocked.headers["retry-after"]).toBe("1");
+      clock.set(new Date("2026-03-10T17:00:00.000Z"));
+      expect((await wake(w)).status).toBe(503); // waking
+      expect(await startJobs()).toHaveLength(1);
+    });
+
+    it("5.99 daily hours still wakes", async () => {
+      const w = await seedWorld(t.db, {
+        status: "sleeping",
+        subscription: { dayStart: "2026-03-10", usedTodayRuntimeHours: 5.99 },
+      });
+      expect((await wake(w)).status).toBe(503);
+      expect(await startJobs()).toHaveLength(1);
+    });
+
+    it("trial ended: 402 with upgrade text even with credits, no start job", async () => {
+      const w = await seedWorld(t.db, {
+        status: "sleeping",
+        balance: 50_000_000n,
+        subscription: { trialEndsAt: clock.now() },
+      });
+      const r = await wake(w);
+      expect(r.status).toBe(402);
+      expect(r.body).toContain("Free trial ended");
+      expect(r.body).toContain("Upgrade");
+      expect(r.body).toContain(`https://app.${D}/billing`);
+      expect(await startJobs()).toHaveLength(0);
+    });
+
+    it("credits only: wakes with a balance, shows out of credits without", async () => {
+      const a = await seedWorld(t.db, { plan: "Credits only", status: "sleeping", balance: 1n });
+      expect((await wake(a)).status).toBe(503);
+      expect(await startJobs()).toHaveLength(1);
+      await t.db.delete(jobs);
+      const [b] = [
+        await seedWorld(t.db, {
+          slug: "bobby",
+          slot: 2,
+          plan: "Credits only",
+          status: "sleeping",
+          balance: 0n,
+        }),
+      ];
+      const s = await session(b, `bobby-t3.${D}`);
+      const r = await get("/internal/authorize", {
+        host: `bobby-t3.${D}`,
+        cookie: s.cookie,
+        ...NAV,
+      });
+      expect(r.status).toBe(402);
+      expect(r.body).toContain("Workspace paused: out of credits");
+      expect(await startJobs()).toHaveLength(0);
+    });
   });
 
   it("startFailures >= 3 shows the failed page with a retry link and does not enqueue", async () => {

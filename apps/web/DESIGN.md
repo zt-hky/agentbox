@@ -73,6 +73,7 @@ live in `components/nav-config.ts` (`ADMIN_NAV_GROUPS`: People, Workspaces, Plat
   - hero: large plate with state sentence and `actions`; row: admin list row, `href` makes the whole row a link
     (actions stay clickable). Pass `now` for deterministic relative times in tests.
 - `Stat({ label, value, hint?, className? })` small metric; use sparingly.
+- `PlanCard({ plan, sub, balanceMicro, prices, label, creditValueVnd, now, showRates? })` the user's plan: trial and daily countdown (`lib/plan-status.ts`), included runtime left, credit rates, balance. `PlansComparison({ plans, currentPlanId, label, creditValueVnd })` public plans side by side with an "Ask an admin to upgrade" note (no payment integration). Money is always `formatCredits(micro, label, creditValueVnd)`: "139 credits (139.000 ₫)".
 - `EmptyState({ title, description?, action? })` dashed panel; always say what to do next.
 - `Mono({ children, className? })` inline JetBrains Mono.
 - `KeyValueList({ items: { label, value: ReactNode, mono? }[] })` technical properties.

@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   doublePrecision,
   index,
   integer,
@@ -137,6 +138,19 @@ export const plans = pgTable("plans", {
   allowanceRuntimeHours: doublePrecision("allowance_runtime_hours").notNull().default(0),
   allowanceCpuCoreHours: doublePrecision("allowance_cpu_core_hours").notNull().default(0),
   allowanceMemGbHours: doublePrecision("allowance_mem_gb_hours").notNull().default(0),
+  /** XFS inode hard limit. */
+  inodesLimit: integer("inodes_limit").notNull().default(4000000),
+  /** Free trial length in days; null = no trial. */
+  trialDays: integer("trial_days"),
+  /** Daily runtime cap (hours per local day); null = none. */
+  dailyRuntimeHours: doublePrecision("daily_runtime_hours"),
+  /** Per-plan override of hibernation.maxAwakeHours; null = global. */
+  maxAwakeHours: doublePrecision("max_awake_hours"),
+  /** Per-plan override of hibernation.idleTimeoutMinutes; null = global. */
+  idleTimeoutMinutes: integer("idle_timeout_minutes"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  /** Shown to users / landing; false = internal (assigned by admins only). */
+  public: boolean("public").notNull().default(true),
   active: boolean("active").notNull().default(true),
   createdAt: createdAt(),
 });
@@ -167,6 +181,10 @@ export const subscriptions = pgTable("subscriptions", {
   usedRuntimeHours: doublePrecision("used_runtime_hours").notNull().default(0),
   usedCpuCoreHours: doublePrecision("used_cpu_core_hours").notNull().default(0),
   usedMemGbHours: doublePrecision("used_mem_gb_hours").notNull().default(0),
+  trialEndsAt: tstz("trial_ends_at"),
+  /** Local (Asia/Ho_Chi_Minh) date that `usedTodayRuntimeHours` counts for. */
+  dayStart: date("day_start", { mode: "string" }),
+  usedTodayRuntimeHours: doublePrecision("used_today_runtime_hours").notNull().default(0),
   createdAt: createdAt(),
 });
 
@@ -361,6 +379,8 @@ export const workspaceEvents = pgTable(
         "start_failed",
         "credits_exhausted",
         "max_awake",
+        "daily_limit",
+        "trial_ended",
       ],
     }).notNull(),
     details: jsonb("details"),

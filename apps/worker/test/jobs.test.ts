@@ -151,8 +151,8 @@ describe("job handlers", () => {
     expect(agent.callsTo("POST /v1/tenants")[0]!.body).toEqual({
       ws: "alice",
       slot: 7,
-      diskGb: 10,
-      limits: { cpus: 2, memoryMb: 4096, pidsLimit: 2048 },
+      diskGb: 5,
+      limits: { cpus: 1, memoryMb: 2048, pidsLimit: 512, inodes: 500000 },
     });
   });
 
@@ -175,7 +175,7 @@ describe("job handlers", () => {
     expect(body).toEqual({
       imageId: IMAGE_ID,
       slot: 1,
-      limits: { cpus: 2, memoryMb: 4096, pidsLimit: 2048 },
+      limits: { cpus: 1, memoryMb: 2048, pidsLimit: 512, inodes: 500000 },
       env: { T3CODE_GATEWAY_IDENTITY_SECRET: w.secret, T3CODE_GATEWAY_IDENTITY_AUDIENCE: "alice" },
     });
     const row = await ws(w.workspaceId);
@@ -203,6 +203,17 @@ describe("job handlers", () => {
     const [e] = await events(w.workspaceId);
     expect(e).toMatchObject({ type: "stopped", details: { reason: "idle" } });
     expect(agent.callsTo("POST /v1/workspaces/alice/stop")).toHaveLength(1);
+  });
+
+  it.each(["daily_limit", "trial_ended"])("stop_workspace accepts reason %s", async (reason) => {
+    const w = await seedWorld(t.db, { workspace: { awakeSince: clock.now() } });
+    const id = await enqueue("stop_workspace", w.workspaceId, { reason });
+    await runAll();
+    expect((await job(id)).status).toBe("done");
+    expect((await events(w.workspaceId))[0]).toMatchObject({
+      type: "stopped",
+      details: { reason },
+    });
   });
 
   it("stop_workspace with a failing agent leaves the workspace in error and retries", async () => {
@@ -373,8 +384,18 @@ describe("job handlers", () => {
     await enqueue("update_limits", w.workspaceId);
     await runAll();
     expect(agent.callsTo("PUT /v1/tenants/alice/limits")[0]!.body).toEqual({
+      diskGb: 20,
+      limits: { cpus: 2, memoryMb: 4096, pidsLimit: 2048, inodes: 2000000 },
+    });
+  });
+
+  it("update_limits for Max sends 4 vCPU / 8 GB / 50 GB / 4M inodes / 4096 pids", async () => {
+    const w = await seedWorld(t.db, { planId: "00000000-0000-4000-8000-0000000000a4" });
+    await enqueue("update_limits", w.workspaceId);
+    await runAll();
+    expect(agent.callsTo("PUT /v1/tenants/alice/limits")[0]!.body).toEqual({
       diskGb: 50,
-      limits: { cpus: 8, memoryMb: 16384, pidsLimit: 2048 },
+      limits: { cpus: 4, memoryMb: 8192, pidsLimit: 4096, inodes: 4000000 },
     });
   });
 

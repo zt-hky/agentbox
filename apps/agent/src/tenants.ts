@@ -113,7 +113,7 @@ export function createTenant(req: CreateTenantRequest): Promise<void> {
 
     await writeDropins(ws, uid, req.limits);
     await run("systemctl", ["daemon-reload"]);
-    await run("xfs_quota", quotaArgv(uid, req.diskGb).slice(1));
+    await run("xfs_quota", quotaArgv(uid, req.diskGb, req.limits.inodes).slice(1));
     await run("loginctl", ["enable-linger", user]);
 
     const workspaceDir = `${home}/workspace`;
@@ -137,7 +137,7 @@ export function createTenant(req: CreateTenantRequest): Promise<void> {
 export function updateLimits(ws: string, req: UpdateLimitsRequest): Promise<void> {
   return withLock(ws, async () => {
     const t = await requireTenant(ws);
-    await run("xfs_quota", quotaArgv(t.uid, req.diskGb).slice(1));
+    await run("xfs_quota", quotaArgv(t.uid, req.diskGb, req.limits.inodes).slice(1));
     await writeDropins(ws, t.uid, req.limits);
     await run("systemctl", ["daemon-reload"]);
     logEvent({ ws, event: "limits_updated" });

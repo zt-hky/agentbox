@@ -130,13 +130,13 @@ export function envFileContent(env: Record<string, string>): string {
   return `${lines.join("\n")}\n`;
 }
 
-export function quotaArgv(uid: number, diskGb: number): string[] {
+export function quotaArgv(uid: number, diskGb: number, inodes: number): string[] {
   const soft = Math.floor(diskGb * 1024 * 0.95);
   return [
     "xfs_quota",
     "-x",
     "-c",
-    `limit -u bsoft=${soft}m bhard=${diskGb}g ihard=4000000 ${uid}`,
+    `limit -u bsoft=${soft}m bhard=${diskGb}g ihard=${inodes} ${uid}`,
     "/srv/agentbox",
   ];
 }

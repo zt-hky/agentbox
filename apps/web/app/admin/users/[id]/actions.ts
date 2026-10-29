@@ -4,14 +4,15 @@ import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@agentbox/db/client";
-import { plans, subscriptions, user, workspaceSessions, workspaces } from "@agentbox/db/schema";
+import { user, workspaceSessions, workspaces } from "@agentbox/db/schema";
 import { guard } from "@/lib/action";
 import { adminContext } from "@/lib/admin";
 import { writeAudit } from "@/lib/audit";
 import { adjustCredits } from "@/lib/credits";
 import { UserError } from "@/lib/errors";
 import { enqueueWorkspaceJob } from "@/lib/jobs";
-import { creditAdjustSchema } from "@/lib/schemas";
+import { changeUserPlanTx } from "@/lib/plan-change";
+import { creditAdjustSchema, planChangeSchema } from "@/lib/schemas";
 
 const idSchema = z.string().min(1).max(128);
 
@@ -103,35 +104,18 @@ export async function reactivateUser(userId: string) {
   });
 }
 
-export async function changeUserPlan(userId: string, planId: string) {
+export async function changeUserPlan(input: z.input<typeof planChangeSchema>) {
   return guard(async () => {
     const { admin, ip } = await adminContext();
-    const newPlanId = z.uuid().parse(planId);
-    await db.transaction(async (tx) => {
-      const target = await loadTarget(tx, userId);
-      const plan = (await tx.select().from(plans).where(eq(plans.id, newPlanId)).limit(1))[0];
-      if (!plan || !plan.active) throw new UserError("Plan not found or inactive");
-      const sub = (
-        await tx.select().from(subscriptions).where(eq(subscriptions.userId, target.id)).limit(1)
-      )[0];
-      if (!sub) throw new UserError("User has no subscription");
-      await tx.update(subscriptions).set({ planId: plan.id }).where(eq(subscriptions.id, sub.id));
-      const ws = (
-        await tx.select().from(workspaces).where(eq(workspaces.userId, target.id)).limit(1)
-      )[0];
-      if (ws && ws.status !== "deleting" && ws.status !== "deleted") {
-        await enqueueWorkspaceJob(tx, ws.id, { type: "update_limits" });
-      }
-      await writeAudit(tx, {
-        actorId: admin.id,
-        action: "user.plan_change",
-        targetType: "user",
-        targetId: target.id,
-        metadata: { from: sub.planId, to: plan.id },
-        ip,
-      });
-    });
-    revalidatePath(`/admin/users/${userId}`);
+    const parsed = planChangeSchema.safeParse(input);
+    if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Invalid input");
+    const res = await changeUserPlanTx(db, { ...parsed.data, adminId: admin.id, ip });
+    revalidatePath(`/admin/users/${parsed.data.userId}`);
+    return {
+      chargedMicro: res.chargedMicro.toString(),
+      waivedMicro: res.waivedMicro.toString(),
+      balanceMicro: res.balanceMicro.toString(),
+    };
   });
 }
 

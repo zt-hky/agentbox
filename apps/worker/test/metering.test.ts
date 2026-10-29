@@ -7,12 +7,14 @@ import {
   hostStats,
   jobs,
   plans,
+  prices,
   subscriptions,
   usageSamples,
   workspaceEvents,
   workspaces,
 } from "@agentbox/db/schema";
 import { createMeteringState, meterTick } from "../src/metering.ts";
+import { CREDITS_ONLY_PLAN_ID } from "@agentbox/core";
 import { createClock, makeCtx } from "./helpers/ctx.ts";
 import { createTestDb, resetDb, type TestDb } from "./helpers/db.ts";
 import { seedWorld, type World } from "./helpers/seed.ts";
@@ -107,23 +109,23 @@ describe("metering transaction", () => {
     stats.workspaces = [wsStat({ cpuUsageUsec: 36_000_000, memoryCurrent: 2 ** 30 })];
     await meterTick(ctx(), createMeteringState());
 
-    // runtime overflow 24 s = 0.006667 h * 500000 = 3333.33; cpu overflow 18 s = 0.005 h * 200000 = 1000
+    // runtime overflow 24 s = 0.006667 h * 600000 = 4000; cpu overflow 18 s = 0.005 h * 400000 = 2000
     const [sample] = await t.db.select().from(usageSamples);
     expect(sample).toMatchObject({
       runtimeSec: 60,
       cpuCoreSec: 36,
       memGbSec: 60,
-      chargeMicro: 4333n,
+      chargeMicro: 6000n,
     });
     expect(sample!.ts.getTime()).toBe(clock.now().getTime());
     const [led] = await t.db.select().from(creditLedger);
     expect(led).toMatchObject({
-      deltaMicro: -4333n,
+      deltaMicro: -6000n,
       reason: "usage",
       workspaceId: w.workspaceId,
       userId: w.userId,
     });
-    expect(await balance(w)).toBe(1_000_000n - 4333n);
+    expect(await balance(w)).toBe(1_000_000n - 6000n);
     const s = await sub(w);
     expect(s.usedRuntimeHours).toBeCloseTo(0.01, 12);
     expect(s.usedCpuCoreHours).toBeCloseTo(0.005, 12);
@@ -276,8 +278,8 @@ describe("metering transaction", () => {
       workspace: { awakeSince: sleepAfter(60_000), lastRequestAt: sleepAfter(1000) },
     });
     await meterTick(ctx(), createMeteringState());
-    // 60 s runtime at 500000/h = 8333 µ > 100 → balance goes negative
-    expect(await balance(w)).toBe(100n - 8333n);
+    // 60 s runtime at 600000/h = 10000 µ > 100 → balance goes negative
+    expect(await balance(w)).toBe(100n - 10_000n);
     expect((await stopJobs())[0]).toMatchObject({ payload: { reason: "credits_exhausted" } });
     expect(await events(w)).toEqual(["credits_exhausted"]);
     clock.advance(60_000);
@@ -364,5 +366,207 @@ describe("metering transaction", () => {
     await seedWorld(t.db, { status: "sleeping" });
     await meterTick(ctx(), createMeteringState());
     expect(await t.db.select().from(usageSamples)).toHaveLength(0);
+  });
+});
+
+describe("plans v2 metering", () => {
+  const MAX_ID = "00000000-0000-4000-8000-0000000000a4";
+  // 2026-03-10T12:00Z is 19:00 on 2026-03-10 in UTC+7.
+  const DAY = "2026-03-10";
+  const base = new Date("2026-03-10T12:00:00.000Z");
+  const awake = {
+    awakeSince: new Date(base.getTime() - 60_000),
+    lastRequestAt: new Date(base.getTime() - 1000),
+  };
+  // Migration 0005's price row is effective "now"; pin the same rates before the fixed test clock.
+  beforeAll(async () => {
+    await t.db
+      .insert(prices)
+      .values({
+        runtimePerHour: 600_000n,
+        cpuCorePerHour: 400_000n,
+        memGbPerHour: 150_000n,
+        effectiveFrom: new Date("2026-02-01T00:00:00Z"),
+      })
+      .onConflictDoNothing();
+  });
+  const meter = async () => {
+    clock.set(base);
+    await meterTick(ctx(), createMeteringState());
+  };
+
+  it("counts every runtime second towards today's counter and sets the local day", async () => {
+    const w = await seedWorld(t.db, { workspace: awake });
+    await meter();
+    const s = await sub(w);
+    expect(s.dayStart).toBe(DAY);
+    expect(s.usedTodayRuntimeHours).toBeCloseTo(60 / 3600, 12);
+    clock.advance(60_000);
+    await meterTick(ctx(), createMeteringState());
+    expect((await sub(w)).usedTodayRuntimeHours).toBeCloseTo(120 / 3600, 12);
+  });
+
+  it("the counter restarts when the local day changes (UTC+7 midnight), not at UTC midnight", async () => {
+    const w = await seedWorld(t.db, {
+      workspace: awake,
+      subscription: { dayStart: "2026-03-09", usedTodayRuntimeHours: 5 },
+    });
+    await meter();
+    const s = await sub(w);
+    expect(s.dayStart).toBe(DAY);
+    expect(s.usedTodayRuntimeHours).toBeCloseTo(60 / 3600, 12);
+
+    // Same instant 17:00Z-1s is still the 10th: counter keeps adding.
+    clock.set(new Date("2026-03-10T16:59:00.000Z"));
+    await t.db.update(workspaces).set({ awakeSince: new Date("2026-03-10T16:58:00.000Z") });
+    await t.db.delete(usageSamples);
+    await meterTick(ctx(), createMeteringState());
+    expect((await sub(w)).usedTodayRuntimeHours).toBeCloseTo(120 / 3600, 12);
+    // 17:00Z is 00:00 on the 11th: reset to just this sample.
+    clock.set(new Date("2026-03-10T17:00:00.000Z"));
+    await meterTick(ctx(), createMeteringState());
+    const s2 = await sub(w);
+    expect(s2.dayStart).toBe("2026-03-11");
+    expect(s2.usedTodayRuntimeHours).toBeCloseTo(60 / 3600, 12);
+  });
+
+  it("free trial hits the 6 h daily cap exactly: stops with daily_limit + event, no credit charge", async () => {
+    const w = await seedWorld(t.db, {
+      balance: 5_000_000n,
+      workspace: awake,
+      // 5 h 59 min used: this 60 s sample reaches exactly 6 h.
+      subscription: { dayStart: DAY, usedTodayRuntimeHours: 6 - 60 / 3600 },
+    });
+    await meter();
+    expect((await sub(w)).usedTodayRuntimeHours).toBeCloseTo(6, 12);
+    const [job] = await stopJobs();
+    expect(job).toMatchObject({ workspaceId: w.workspaceId, payload: { reason: "daily_limit" } });
+    expect(await events(w)).toEqual(["daily_limit"]);
+    const [e] = await t.db.select().from(workspaceEvents);
+    expect(e!.details).toMatchObject({ resumesAt: "2026-03-10T17:00:00.000Z" });
+    expect(await balance(w)).toBe(5_000_000n); // free trial never spends credits
+    expect(await t.db.select().from(creditLedger)).toHaveLength(0);
+  });
+
+  it("free trial below the cap keeps running", async () => {
+    const w = await seedWorld(t.db, {
+      workspace: awake,
+      subscription: { dayStart: DAY, usedTodayRuntimeHours: 5.9 },
+    });
+    await meter();
+    expect(await stopJobs()).toHaveLength(0);
+    expect(await events(w)).toEqual([]);
+  });
+
+  it("trial end while running stops with trial_ended + event", async () => {
+    const w = await seedWorld(t.db, {
+      workspace: awake,
+      subscription: { trialEndsAt: new Date(base.getTime() - 1) },
+    });
+    await meter();
+    // meterTick also expires the trial; the stop was queued once.
+    const jobsRows = await stopJobs();
+    expect(jobsRows).toHaveLength(1);
+    expect(jobsRows[0]).toMatchObject({ payload: { reason: "trial_ended" } });
+    expect(await events(w)).toEqual(["trial_ended"]);
+    expect((await sub(w)).planId).toBe(CREDITS_ONLY_PLAN_ID);
+  });
+
+  it("free trial: exhausted included runtime stops with credits_exhausted despite a balance", async () => {
+    const w = await seedWorld(t.db, {
+      balance: 9_000_000n,
+      workspace: awake,
+      subscription: { usedRuntimeHours: 30 - 60 / 3600, dayStart: DAY },
+    });
+    await meter();
+    expect((await stopJobs())[0]).toMatchObject({ payload: { reason: "credits_exhausted" } });
+    expect(await events(w)).toEqual(["credits_exhausted"]);
+    expect(await balance(w)).toBe(9_000_000n);
+  });
+
+  it("Credits only is billed at credit rates and stops at balance 0", async () => {
+    const w = await seedWorld(t.db, {
+      planId: CREDITS_ONLY_PLAN_ID,
+      balance: 5_000n,
+      workspace: awake,
+    });
+    await meter();
+    // 60 s runtime at 0.6 credit/h = 10000 µcredit > 5000 balance
+    expect(await balance(w)).toBe(-5_000n);
+    expect((await stopJobs())[0]).toMatchObject({ payload: { reason: "credits_exhausted" } });
+  });
+
+  it("package overflow beyond included runtime is charged in credits at the new rates", async () => {
+    await seedWorld(t.db, {
+      plan: "Pro",
+      balance: 50_000_000n,
+      workspace: awake,
+      subscription: { usedRuntimeHours: 200, usedCpuCoreHours: 400, usedMemGbHours: 800 },
+    });
+    stats.workspaces = [wsStat({ cpuUsageUsec: 60_000_000, memoryCurrent: 2 * 2 ** 30 })];
+    await meter();
+    // runtime 60 s*0.6/h = 10000; cpu 60 core-s*0.4/h = 6667; mem 2 GiB*60 s*0.15/h = 5000
+    const [sample] = await t.db.select().from(usageSamples);
+    expect(sample!.chargeMicro).toBe(10_000n + 6_667n + 5_000n);
+    expect(await stopJobs()).toHaveLength(0);
+  });
+
+  describe("per-plan idle / max-awake overrides", () => {
+    it("plan idleTimeoutMinutes overrides the global 30 min", async () => {
+      // Free trial: 15 min idle. 20 min idle -> stops (global 30 would not).
+      const w = await seedWorld(t.db, {
+        workspace: {
+          awakeSince: new Date(base.getTime() - 3600_000),
+          lastActivityAt: new Date(base.getTime() - 20 * 60_000),
+          lastRequestAt: new Date(base.getTime() - 20 * 60_000),
+        },
+      });
+      await meter();
+      expect((await stopJobs())[0]).toMatchObject({
+        workspaceId: w.workspaceId,
+        payload: { reason: "idle" },
+      });
+    });
+
+    it("Max (60 min idle) is not stopped after 40 idle minutes", async () => {
+      await seedWorld(t.db, {
+        planId: MAX_ID,
+        balance: 5_000_000n,
+        workspace: {
+          awakeSince: new Date(base.getTime() - 3600_000),
+          lastActivityAt: new Date(base.getTime() - 40 * 60_000),
+          lastRequestAt: new Date(base.getTime() - 40 * 60_000),
+        },
+      });
+      await meter();
+      expect(await stopJobs()).toHaveLength(0);
+    });
+
+    it("plan maxAwakeHours overrides the global 24 h; null falls back to the global", async () => {
+      const w = await seedWorld(t.db, {
+        plan: "Pro", // 12 h
+        balance: 5_000_000n,
+        workspace: {
+          awakeSince: new Date(base.getTime() - 13 * 3600_000),
+          lastRequestAt: new Date(base.getTime() - 1000),
+        },
+      });
+      await meter();
+      expect((await stopJobs())[0]).toMatchObject({ payload: { reason: "max_awake" } });
+      expect(await events(w)).toEqual(["max_awake"]);
+
+      await t.db.delete(jobs);
+      await t.db.delete(workspaceEvents);
+      const p = await tinyPlan({
+        allowanceRuntimeHours: 100,
+        allowanceCpuCoreHours: 100,
+        allowanceMemGbHours: 100,
+        maxAwakeHours: null,
+        idleTimeoutMinutes: null,
+      });
+      await t.db.update(subscriptions).set({ planId: p.id });
+      await meter();
+      expect(await stopJobs()).toHaveLength(0); // 13 h < global 24 h
+    });
   });
 });

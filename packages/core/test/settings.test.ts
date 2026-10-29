@@ -10,7 +10,7 @@ describe("settings schemas", () => {
       { idleTimeoutMinutes: 30, idleCpuPercent: 5, idleNetBytesPerMin: 32768, maxAwakeHours: 24 },
     ],
     ["capacity", { maxRunningMemoryRatio: 0.8 }],
-    ["billing", { creditLabel: "credit", defaultPlanId: id }],
+    ["billing", { creditLabel: "credit", defaultPlanId: id, creditValueVnd: 1000 }],
   ];
   it.each(ok)("accepts %s", (k, v) => expect(parseSetting(k, v)).toEqual(v));
   const bad: [Parameters<typeof parseSetting>[0], unknown][] = [
@@ -23,6 +23,14 @@ describe("settings schemas", () => {
     ["capacity", { maxRunningMemoryRatio: 0 }],
     ["billing", { creditLabel: "", defaultPlanId: id }],
     ["billing", { creditLabel: "c", defaultPlanId: "nope" }],
+    ["billing", { creditLabel: "c", defaultPlanId: id, creditValueVnd: 0 }],
   ];
   it.each(bad)("rejects %s %#", (k, v) => expect(() => parseSetting(k, v)).toThrow());
+  it("billing.creditValueVnd is optional and defaults to 1000", () => {
+    expect(parseSetting("billing", { creditLabel: "credit", defaultPlanId: id })).toEqual({
+      creditLabel: "credit",
+      defaultPlanId: id,
+      creditValueVnd: 1000,
+    });
+  });
 });

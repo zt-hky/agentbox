@@ -1,5 +1,13 @@
 import { desc, eq, gte, lte, sql } from "drizzle-orm";
-import { canWake, computeCharge, evaluateActivity, type IdleConfig } from "@agentbox/core";
+import {
+  BILLING_TIME_ZONE,
+  computeCharge,
+  evaluateActivity,
+  localDateString,
+  planGate,
+  runtimeUsedToday,
+  type IdleConfig,
+} from "@agentbox/core";
 import type { StatsResponse, WorkerHeartbeat } from "@agentbox/core/agent-api";
 import { readSetting } from "@agentbox/db/client";
 import {
@@ -13,6 +21,7 @@ import {
   usageSamples,
   workspaces,
 } from "@agentbox/db/schema";
+import { expireTrials } from "./cycle.ts";
 import { errMessage } from "./log.ts";
 import { addEvent, enqueueJob } from "./queue.ts";
 import type { Ctx } from "./types.ts";
@@ -101,6 +110,8 @@ export async function meterTick(ctx: Ctx, state: MeteringState): Promise<void> {
       ctx.log.error("metering failed for workspace", { ws: w.slug, error: errMessage(e) });
     }
   }
+  // Trials end on the minute instead of waiting for the hourly cycle loop.
+  await expireTrials(ctx);
 }
 
 async function meterWorkspace(
@@ -174,12 +185,19 @@ async function meterWorkspace(
       cpuCoreHours: plan.allowanceCpuCoreHours - sub.usedCpuCoreHours,
       memGbHours: plan.allowanceMemGbHours - sub.usedMemGbHours,
     };
-    const { allowanceConsumed, chargeMicro } = computeCharge(usage, price, allowanceRemaining);
+    const computed = computeCharge(usage, price, allowanceRemaining);
+    const { allowanceConsumed } = computed;
+    // The free trial never spends credits: it stops when its allowance or daily cap is used up.
+    const chargeMicro = plan.kind === "free" ? 0n : computed.chargeMicro;
 
     const newUsed = {
       usedRuntimeHours: sub.usedRuntimeHours + allowanceConsumed.runtimeHours,
       usedCpuCoreHours: sub.usedCpuCoreHours + allowanceConsumed.cpuCoreHours,
       usedMemGbHours: sub.usedMemGbHours + allowanceConsumed.memGbHours,
+      // The daily counter counts all runtime on the local day and restarts when the day changes.
+      dayStart: localDateString(now, BILLING_TIME_ZONE),
+      usedTodayRuntimeHours:
+        runtimeUsedToday(sub, now, BILLING_TIME_ZONE) + usage.runtimeSec / 3600,
     };
     await tx.update(subscriptions).set(newUsed).where(eq(subscriptions.id, sub.id));
     await tx.insert(usageSamples).values({
@@ -219,7 +237,11 @@ async function meterWorkspace(
       cpuPercent,
       netBytesPerMin,
       awakeSince,
-      config: hibernation,
+      config: {
+        ...hibernation,
+        idleTimeoutMinutes: plan.idleTimeoutMinutes ?? hibernation.idleTimeoutMinutes,
+        maxAwakeHours: plan.maxAwakeHours ?? hibernation.maxAwakeHours,
+      },
     });
     await tx
       .update(workspaces)
@@ -229,27 +251,35 @@ async function meterWorkspace(
       })
       .where(eq(workspaces.id, ws.id));
 
-    const afterAllowance = {
-      runtimeHours: plan.allowanceRuntimeHours - newUsed.usedRuntimeHours,
-      cpuCoreHours: plan.allowanceCpuCoreHours - newUsed.usedCpuCoreHours,
-      memGbHours: plan.allowanceMemGbHours - newUsed.usedMemGbHours,
-    };
-    const affordable = canWake({
+    const gate = planGate({
+      plan,
+      subscription: { ...sub, ...newUsed },
       balanceMicro: balance,
-      allowanceRemaining: afterAllowance,
-      planKind: plan.kind,
+      now,
+      timeZone: BILLING_TIME_ZONE,
     });
-    const reason = !affordable ? "credits_exhausted" : activity.stopReason;
+    const reason = gate.reason ?? activity.stopReason;
     if (reason) {
       const queued = await enqueueJob(tx, {
         type: "stop_workspace",
         workspaceId: ws.id,
         payload: { reason },
       });
-      if (queued && reason === "credits_exhausted") {
-        await addEvent(tx, ws.id, "credits_exhausted", { balanceMicro: balance.toString() });
-      } else if (queued && reason === "max_awake") {
-        await addEvent(tx, ws.id, "max_awake", {});
+      if (queued) {
+        if (reason === "credits_exhausted") {
+          await addEvent(tx, ws.id, "credits_exhausted", { balanceMicro: balance.toString() });
+        } else if (reason === "daily_limit") {
+          await addEvent(tx, ws.id, "daily_limit", {
+            usedTodayHours: newUsed.usedTodayRuntimeHours,
+            resumesAt: gate.resumesAt?.toISOString() ?? null,
+          });
+        } else if (reason === "trial_ended") {
+          await addEvent(tx, ws.id, "trial_ended", {
+            trialEndsAt: sub.trialEndsAt?.toISOString() ?? null,
+          });
+        } else if (reason === "max_awake") {
+          await addEvent(tx, ws.id, "max_awake", {});
+        }
       }
     }
   });

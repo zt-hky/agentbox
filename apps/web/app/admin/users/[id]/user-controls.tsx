@@ -15,7 +15,16 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -28,6 +37,7 @@ import {
   type GrantTarget,
   type PlanOption,
 } from "@/components/grant-access-dialog";
+import { formatCredits } from "@/lib/money";
 import { creditAdjustSchema } from "@/lib/schemas";
 import {
   adjustUserCredits,
@@ -93,43 +103,154 @@ export function RoleControl({
   );
 }
 
+export interface PlanChoice {
+  id: string;
+  name: string;
+  summary: string;
+  kind: "free" | "package" | "payg";
+  monthlyPriceMicro: string;
+}
+
+/** Plan picker + dialog: package plans can charge the first month now or waive it. */
 export function PlanControl({
   userId,
   planId,
   plans,
+  balanceMicro,
+  label,
+  creditValueVnd,
+  defaultOpen = false,
 }: {
   userId: string;
   planId: string | null;
-  plans: { id: string; name: string }[];
+  plans: PlanChoice[];
+  balanceMicro: string;
+  label: string;
+  creditValueVnd: number;
+  defaultOpen?: boolean;
 }) {
-  const { pending, run } = useRun();
-  const [value, setValue] = useState(planId ?? "");
+  const router = useRouter();
+  const [open, setOpen] = useState(defaultOpen);
+  const [pending, start] = useTransition();
+  const [value, setValue] = useState(plans.find((p) => p.id !== planId)?.id ?? "");
+  const [fee, setFee] = useState<"charge" | "waive">("charge");
+  const current = plans.find((p) => p.id === planId);
+  const chosen = plans.find((p) => p.id === value);
+  const price = chosen && chosen.kind === "package" ? BigInt(chosen.monthlyPriceMicro) : 0n;
+  const balance = BigInt(balanceMicro);
+  const short = fee === "charge" && price > balance;
   return (
-    <div className="flex items-end gap-2">
+    <>
       <div className="space-y-1.5">
         <div className="text-sm font-medium">Plan</div>
-        <Select value={value} onValueChange={setValue}>
-          <SelectTrigger className="w-56">
-            <SelectValue placeholder="No subscription" />
-          </SelectTrigger>
-          <SelectContent>
-            {plans.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <span className="min-w-32 text-sm">{current?.name ?? "No subscription"}</span>
+          <Button variant="outline" onClick={() => setOpen(true)}>
+            Change plan
+          </Button>
+        </div>
       </div>
-      <Button
-        disabled={pending || !value || value === planId}
-        onClick={() =>
-          run(() => changeUserPlan(userId, value), "Plan changed; limits update queued")
-        }
-      >
-        Change plan
-      </Button>
-    </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change plan</DialogTitle>
+            <DialogDescription>
+              Starts a new cycle with fresh usage counters and queues a limits update. Running
+              containers keep their old CPU and memory until they restart.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>New plan</Label>
+              <Select value={value} onValueChange={setValue}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose a plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  {plans
+                    .filter((p) => p.id !== planId)
+                    .map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {chosen ? <p className="text-meta text-muted-foreground">{chosen.summary}</p> : null}
+            </div>
+            {price > 0n ? (
+              <div
+                role="radiogroup"
+                aria-label="First month fee"
+                className="space-y-2 rounded-md border p-3 text-sm"
+              >
+                <p className="text-meta text-muted-foreground">
+                  First month {formatCredits(price, label, creditValueVnd)}. Balance{" "}
+                  {formatCredits(balance, label, creditValueVnd)}.
+                </p>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="fee"
+                    className="mt-1"
+                    checked={fee === "charge"}
+                    onChange={() => setFee("charge")}
+                  />
+                  <span>
+                    <span className="font-medium">Charge first month now</span>
+                    <span className="block text-meta text-muted-foreground">
+                      Debits the credit balance (ledger: package fee).
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="fee"
+                    className="mt-1"
+                    checked={fee === "waive"}
+                    onChange={() => setFee("waive")}
+                  />
+                  <span>
+                    <span className="font-medium">Waive this month&apos;s fee</span>
+                    <span className="block text-meta text-muted-foreground">
+                      No charge; recorded in the audit log. Renewal is charged normally.
+                    </span>
+                  </span>
+                </label>
+                {short ? (
+                  <p role="alert" className="text-meta text-destructive">
+                    The balance is too low for the first month. Top up first or waive the fee.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={pending || !value || short}
+              onClick={() =>
+                start(async () => {
+                  const res = await changeUserPlan({ userId, planId: value, fee });
+                  if (!res.ok) {
+                    toast.error(res.error);
+                    return;
+                  }
+                  toast.success("Plan changed; limits update queued");
+                  setOpen(false);
+                  router.refresh();
+                })
+              }
+            >
+              Change plan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

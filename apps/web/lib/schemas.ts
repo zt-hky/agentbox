@@ -41,6 +41,13 @@ export const creditAdjustSchema = z.object({
   note: z.string().trim().min(1, "A note is required").max(500),
 });
 
+/** Optional number field from a text input: blank -> null. */
+const optionalNumber = (schema: z.ZodNumber) =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+    z.coerce.number().pipe(schema).nullable(),
+  );
+
 export const planSchema = z.object({
   name: z.string().trim().min(1).max(60),
   kind: z.enum(["free", "package", "payg"]),
@@ -49,12 +56,26 @@ export const planSchema = z.object({
   memoryLimitMb: z.coerce.number().int().min(256).max(262144),
   diskLimitGb: z.coerce.number().int().min(1).max(10000),
   pidsLimit: z.coerce.number().int().min(64).max(65536),
+  inodesLimit: z.coerce.number().int().min(1000).max(1_000_000_000),
   allowanceRuntimeHours: z.coerce.number().min(0),
   allowanceCpuCoreHours: z.coerce.number().min(0),
   allowanceMemGbHours: z.coerce.number().min(0),
+  trialDays: optionalNumber(z.number().int().min(1).max(365)),
+  dailyRuntimeHours: optionalNumber(z.number().positive().max(24)),
+  maxAwakeHours: optionalNumber(z.number().positive().max(720)),
+  idleTimeoutMinutes: optionalNumber(z.number().int().min(1).max(10080)),
+  sortOrder: z.coerce.number().int().min(0).max(1000),
+  public: z.boolean(),
   active: z.boolean(),
 });
 export type PlanFormValues = z.input<typeof planSchema>;
+
+export const planChangeSchema = z.object({
+  userId: z.string().min(1).max(128),
+  planId: z.uuid(),
+  /** `charge`: debit the first month now; `waive`: start the cycle without a fee (audited). */
+  fee: z.enum(["charge", "waive"]),
+});
 
 export const priceSchema = z.object({
   runtimePerHour: creditAmount,

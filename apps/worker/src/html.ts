@@ -50,6 +50,22 @@ export function creditsPage(opts: { ws: string; billingUrl: string }): string {
   );
 }
 
+const fmtHours = (h: number) => (Number.isInteger(h) ? String(h) : h.toFixed(1));
+
+export function dailyLimitPage(opts: { ws: string; hours: number; billingUrl: string }): string {
+  return layout(
+    "Daily limit reached",
+    `<h1>Daily limit reached</h1><p>Today's ${esc(fmtHours(opts.hours))} hours are used. Workspace ${esc(opts.ws)} will be back at 00:00 (Vietnam time), or upgrade to keep going.</p><p><a class="btn" href="${esc(opts.billingUrl)}">See plans</a></p>`,
+  );
+}
+
+export function trialEndedPage(opts: { ws: string; billingUrl: string }): string {
+  return layout(
+    "Free trial ended",
+    `<h1>Free trial ended</h1><p>Your free trial is over. Your files in workspace ${esc(opts.ws)} are kept. Upgrade to a plan or add credits to wake it up again.</p><p><a class="btn" href="${esc(opts.billingUrl)}">See plans</a></p>`,
+  );
+}
+
 export function capacityPage(opts: { ws: string }): string {
   return layout(
     "Server at capacity, retrying",

@@ -19,6 +19,8 @@ export const tenantLimitsSchema = z.object({
   cpus: z.number().positive().max(64),
   memoryMb: z.number().int().positive(),
   pidsLimit: z.number().int().positive(),
+  /** XFS inode hard limit (`ihard`). */
+  inodes: z.number().int().positive().default(4_000_000),
 });
 export type TenantLimits = z.infer<typeof tenantLimitsSchema>;
 

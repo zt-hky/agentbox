@@ -2,15 +2,14 @@ import type { Metadata } from "next";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
 import { creditLedger } from "@agentbox/db/schema";
-import { AllowanceMeters } from "@/components/allowance-meters";
-import { KeyValueList } from "@/components/key-value-list";
 import { LedgerTable, type LedgerRow } from "@/components/ledger-table";
 import { PageHeader } from "@/components/page-header";
+import { PlanCard } from "@/components/plan-card";
+import { PlansComparison } from "@/components/plans-comparison";
 import { Section } from "@/components/section";
 import { Stat } from "@/components/stat";
-import { formatDate } from "@/lib/format";
-import { formatCredits } from "@/lib/money";
-import { creditLabel, currentPrices } from "@/lib/queries";
+import { formatCredits, formatVnd } from "@/lib/money";
+import { billingDisplay, currentPrices, publicPlans } from "@/lib/queries";
 import { requireActiveUser } from "@/lib/session";
 import { loadBalance, loadSubscription } from "@/lib/user-data";
 
@@ -18,11 +17,12 @@ export const metadata: Metadata = { title: "Billing" };
 
 export default async function BillingPage() {
   const { user } = await requireActiveUser();
-  const [balance, sub, label, prices, ledger] = await Promise.all([
+  const [balance, sub, display, prices, plans, ledger] = await Promise.all([
     loadBalance(user.id),
     loadSubscription(user.id),
-    creditLabel(),
+    billingDisplay(),
     currentPrices(),
+    publicPlans(),
     db
       .select()
       .from(creditLedger)
@@ -30,6 +30,8 @@ export default async function BillingPage() {
       .orderBy(desc(creditLedger.createdAt))
       .limit(100),
   ]);
+  const { label, creditValueVnd } = display;
+  const now = new Date();
   const rows: LedgerRow[] = ledger.map((l) => ({
     id: l.id,
     createdAt: l.createdAt.toISOString(),
@@ -42,49 +44,40 @@ export default async function BillingPage() {
     <>
       <PageHeader
         title="Billing"
-        description="Your plan allowance comes first. Once it is used up, the workspace draws from your credit balance."
+        description="Your plan's included runtime comes first. Past it, usage is drawn from your credit balance."
       />
 
-      <div className="grid gap-8 md:grid-cols-[16rem_1fr]">
+      <div className="grid gap-8 md:grid-cols-[18rem_1fr]">
         <Stat
           label="Credit balance"
-          value={formatCredits(balance, label)}
-          hint="Top-ups are added by an administrator."
+          value={formatCredits(balance, label, creditValueVnd)}
+          hint={`1 ${label} = ${formatVnd(creditValueVnd)}. Top-ups are added by an administrator.`}
         />
-        <Section title="Prices after the allowance" bodyClassName="py-4">
-          {prices ? (
-            <KeyValueList
-              items={[
-                {
-                  label: "Runtime",
-                  value: `${formatCredits(prices.runtimePerHour, label)} per hour`,
-                },
-                {
-                  label: "CPU",
-                  value: `${formatCredits(prices.cpuCorePerHour, label)} per core-hour`,
-                },
-                {
-                  label: "Memory",
-                  value: `${formatCredits(prices.memGbPerHour, label)} per GB-hour`,
-                },
-              ]}
-            />
-          ) : (
+        {sub ? (
+          <PlanCard
+            plan={sub.plan}
+            sub={sub.sub}
+            balanceMicro={balance}
+            prices={prices}
+            label={label}
+            creditValueVnd={creditValueVnd}
+            now={now}
+          />
+        ) : (
+          <Section title="No plan yet">
             <p className="text-sm text-muted-foreground">
-              No prices are configured yet, so nothing is charged.
+              An administrator assigns a plan when approving your account.
             </p>
-          )}
-        </Section>
+          </Section>
+        )}
       </div>
 
-      {sub ? (
-        <Section
-          title={`${sub.plan.name} plan`}
-          description={`Current cycle: ${formatDate(sub.sub.cycleStart)} to ${formatDate(sub.sub.cycleEnd)}.`}
-        >
-          <AllowanceMeters used={sub.sub} plan={sub.plan} />
-        </Section>
-      ) : null}
+      <PlansComparison
+        plans={plans}
+        currentPlanId={sub?.plan.id ?? null}
+        label={label}
+        creditValueVnd={creditValueVnd}
+      />
 
       <Section title="Ledger" description="Your latest 100 entries." bodyClassName="p-0">
         <LedgerTable rows={rows} />

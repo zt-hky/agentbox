@@ -24,9 +24,16 @@ function planValues(input: z.output<typeof planSchema>) {
     memoryLimitMb: input.memoryLimitMb,
     diskLimitGb: input.diskLimitGb,
     pidsLimit: input.pidsLimit,
+    inodesLimit: input.inodesLimit,
     allowanceRuntimeHours: input.allowanceRuntimeHours,
     allowanceCpuCoreHours: input.allowanceCpuCoreHours,
     allowanceMemGbHours: input.allowanceMemGbHours,
+    trialDays: input.trialDays,
+    dailyRuntimeHours: input.dailyRuntimeHours,
+    maxAwakeHours: input.maxAwakeHours,
+    idleTimeoutMinutes: input.idleTimeoutMinutes,
+    sortOrder: input.sortOrder,
+    public: input.public,
     active: input.active,
   };
 }
@@ -63,7 +70,8 @@ export async function savePlan(planId: string | null, input: z.input<typeof plan
         Number(before.cpuLimit) !== Number(values.cpuLimit) ||
         before.memoryLimitMb !== values.memoryLimitMb ||
         before.diskLimitGb !== values.diskLimitGb ||
-        before.pidsLimit !== values.pidsLimit;
+        before.pidsLimit !== values.pidsLimit ||
+        before.inodesLimit !== values.inodesLimit;
       if (limitsChanged) {
         const affected = await tx
           .select({ id: workspaces.id })

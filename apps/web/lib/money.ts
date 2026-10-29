@@ -12,8 +12,36 @@ export function microToCredits(micro: bigint): string {
   return `${neg ? "-" : ""}${whole.toString()}.${frac}`;
 }
 
-export function formatCredits(micro: bigint, label: string): string {
-  return `${microToCredits(micro)} ${label}`;
+/** "1.50" -> "1.5", "139.00" -> "139" (display only). */
+function trimCredits(micro: bigint): string {
+  return microToCredits(micro)
+    .replace(/\.00$/, "")
+    .replace(/(\.\d*?)0+$/, "$1");
+}
+
+const VND = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 });
+
+/** Whole dong with vi-VN grouping: 139000 -> "139.000 ₫". */
+export function formatVnd(amount: number): string {
+  return `${VND.format(Math.round(amount))} ₫`;
+}
+
+/** VND equivalent of a credit amount (1 credit = `creditValueVnd` dong). */
+export function creditsToVnd(micro: bigint, creditValueVnd: number): number {
+  return (Number(micro) * creditValueVnd) / Number(MICRO_PER_CREDIT);
+}
+
+/**
+ * "139 credits (139.000 ₫)". Without `creditValueVnd` only the credit amount is shown.
+ * The label is pluralized by appending "s" unless the amount is exactly 1.
+ */
+export function formatCredits(micro: bigint, label: string, creditValueVnd?: number): string {
+  const abs = micro < 0n ? -micro : micro;
+  const name = abs === MICRO_PER_CREDIT ? label : `${label}s`;
+  const base = `${trimCredits(micro)} ${name}`;
+  return creditValueVnd === undefined
+    ? base
+    : `${base} (${formatVnd(creditsToVnd(micro, creditValueVnd))})`;
 }
 
 /** Decimal credit amount ("1.25") -> micro-credits. */

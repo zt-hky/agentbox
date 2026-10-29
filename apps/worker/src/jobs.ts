@@ -56,7 +56,16 @@ function diagnostic(handler: Handler): Handler {
 }
 
 const stopPayloadSchema = z.object({
-  reason: z.enum(["idle", "max_awake", "credits_exhausted", "user", "admin", "suspended"]),
+  reason: z.enum([
+    "idle",
+    "max_awake",
+    "credits_exhausted",
+    "daily_limit",
+    "trial_ended",
+    "user",
+    "admin",
+    "suspended",
+  ]),
 });
 const buildPayloadSchema = z.object({ imageRowId: z.uuid(), t3Ref: z.string().min(1) });
 const deleteImagePayloadSchema = z.object({ imageRowId: z.uuid() });
@@ -81,6 +90,7 @@ function limitsOf(plan: typeof plans.$inferSelect | null, slug: string) {
       cpus: Number(plan.cpuLimit),
       memoryMb: plan.memoryLimitMb,
       pidsLimit: plan.pidsLimit,
+      inodes: plan.inodesLimit,
     },
   };
 }

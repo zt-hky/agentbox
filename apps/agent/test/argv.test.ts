@@ -14,7 +14,7 @@ const argv = podmanRunArgv({
   ws: "alice",
   slot: 7,
   imageId: IMAGE,
-  limits: { cpus: 2, memoryMb: 4096, pidsLimit: 2048 },
+  limits: { cpus: 2, memoryMb: 4096, pidsLimit: 2048, inodes: 2000000 },
 });
 
 describe("podman run argv", () => {
@@ -118,18 +118,18 @@ describe("transport and helpers", () => {
   });
 
   it("builds quota and drop-ins", () => {
-    expect(quotaArgv(204998, 10)).toEqual([
+    expect(quotaArgv(204998, 10, 2_000_000)).toEqual([
       "xfs_quota",
       "-x",
       "-c",
-      "limit -u bsoft=9728m bhard=10g ihard=4000000 204998",
+      "limit -u bsoft=9728m bhard=10g ihard=2000000 204998",
       "/srv/agentbox",
     ]);
     expect(userDropin("smoke", 204998)).toContain(
       "ReadWritePaths=/srv/agentbox/tenants/smoke /run/user/204998",
     );
     expect(userDropin("smoke", 204998)).not.toMatch(/ProtectHome|ProtectKernelLogs/);
-    expect(sliceDropin({ cpus: 2, memoryMb: 4096, pidsLimit: 2048 })).toBe(
+    expect(sliceDropin({ cpus: 2, memoryMb: 4096, pidsLimit: 2048, inodes: 2000000 })).toBe(
       "[Slice]\nMemoryMax=4608M\nTasksMax=2560\nCPUQuota=250%\n",
     );
   });

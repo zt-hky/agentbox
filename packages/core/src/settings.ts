@@ -16,6 +16,8 @@ export type CapacitySettings = z.infer<typeof capacitySettingsSchema>;
 export const billingSettingsSchema = z.object({
   creditLabel: z.string().min(1),
   defaultPlanId: z.uuid(),
+  /** 1 credit = this many VND (display only). */
+  creditValueVnd: z.number().positive().default(1000),
 });
 export type BillingSettings = z.infer<typeof billingSettingsSchema>;
 
