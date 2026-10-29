@@ -19,13 +19,6 @@ if [[ ! -e "$HOME/.agentbox-seeded" ]]; then
   : > "$HOME/.agentbox-seeded"
 fi
 
-# Every start, not only the first: existing homes need it too, and the overlay follows the image's omp.
-mkdir -p "$HOME/.t3/acp-registry-overlay" "$HOME/.t3/caches/acp-registry"
-rm -rf "$HOME/.t3/acp-registry-overlay/omp"
-cp -r "$AGENTBOX_DIR/t3-home/acp-registry-overlay/omp" "$HOME/.t3/acp-registry-overlay/omp"
-cp --update=none "$AGENTBOX_DIR/t3-home/caches/acp-registry/registry.json" \
-  "$HOME/.t3/caches/acp-registry/registry.json"
-
 start_t3() {
   t3 serve --host 0.0.0.0 --port 3773 --base-dir "$HOME/.t3" --no-browser &
   T3_PID=$!

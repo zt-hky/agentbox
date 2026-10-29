@@ -2,10 +2,9 @@
   "enableProviderUpdateChecks": false,
   "providerInstances": {
     "ohmypi": {
-      "driver": "acpRegistry",
+      "driver": "ohmypi",
       "config": {
-        "agentId": "omp",
-        "commandPath": "/usr/local/bin/omp"
+        "binaryPath": "/usr/local/bin/omp"
       }
     }
   }
