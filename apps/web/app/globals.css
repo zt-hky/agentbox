@@ -6,7 +6,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-vietnam), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jbmono), ui-monospace, "SFMono-Regular", Menlo, monospace;
   --color-signal: var(--signal);
   --color-signal-foreground: var(--signal-foreground);
@@ -23,7 +23,8 @@
   --text-display: 2.25rem;
   --text-display--line-height: 1.1;
   --text-display--letter-spacing: -0.025em;
-  --shadow-module: 0 1px 2px rgb(26 30 28 / 0.05), 0 8px 24px -12px rgb(26 30 28 / 0.18);
+  --shadow-module: 0 1px 2px rgb(14 19 36 / 0.05), 0 12px 32px -16px rgb(14 19 36 / 0.22);
+  --color-glass: var(--glass);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -53,11 +54,11 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  /* Radius hierarchy: controls 7px, panels 10px, workspace module 14px. */
-  --radius-sm: 5px;
-  --radius-md: 7px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
+  /* Radius hierarchy: controls 12px, cards/panels 18px, workspace module 28px. */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 28px;
 }
 
 @keyframes status-pulse {
@@ -70,82 +71,90 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: #f4f5f3;
-  --foreground: #1a1e1c;
+  --radius: 0.75rem;
+  /* Cloud / Ink. Iris is the brand primary; Aurora/Ember/#FF5C70 are state lights only. */
+  --background: #f4f6fa;
+  --foreground: #0e1324;
   --card: #ffffff;
-  --card-foreground: #1a1e1c;
+  --card-foreground: #0e1324;
   --popover: #ffffff;
-  --popover-foreground: #1a1e1c;
-  --primary: #1a1e1c;
-  --primary-foreground: #f4f5f3;
-  --secondary: #eceeec;
-  --secondary-foreground: #1a1e1c;
-  --muted: #eceeec;
-  --muted-foreground: #5e6662;
-  --accent: #eceeec;
-  --accent-foreground: #1a1e1c;
-  --destructive: #c23631;
-  --border: #d8dcd9;
-  --input: #cbd0cc;
-  --ring: #0e7c6b;
-  --signal: #0e7c6b;
+  --popover-foreground: #0e1324;
+  --primary: #6d5efc;
+  --primary-foreground: #ffffff;
+  --secondary: #eaedf5;
+  --secondary-foreground: #0e1324;
+  --muted: #eaedf5;
+  --muted-foreground: #596380;
+  --accent: #eaedf5;
+  --accent-foreground: #0e1324;
+  --destructive: #d12c45;
+  --border: rgb(14 19 36 / 0.1);
+  --input: rgb(14 19 36 / 0.16);
+  --ring: #6d5efc;
+  --signal: #5a49ec;
   --signal-foreground: #ffffff;
-  --rack: #eef0ee;
-  --status-ok: #2fa866;
-  --status-busy: #d9961a;
-  --status-error: #d9443f;
-  --status-idle: #8a938e;
-  --chart-1: #0e7c6b;
-  --chart-2: #5b7fa6;
-  --chart-3: #d9961a;
-  --chart-4: #8a6fb0;
-  --chart-5: #d9443f;
+  --rack: #edf0f7;
+  --glass: rgb(255 255 255 / 0.72);
+  --status-ok: #12b894;
+  --status-busy: #f0a030;
+  --status-error: #ff5c70;
+  --status-idle: #8d97ad;
+  --chart-1: #6d5efc;
+  --chart-2: #12b894;
+  --chart-3: #f0a030;
+  --chart-4: #8f9ab4;
+  --chart-5: #ff5c70;
   --sidebar: #ffffff;
-  --sidebar-foreground: #1a1e1c;
-  --sidebar-primary: #0e7c6b;
+  --sidebar-foreground: #0e1324;
+  --sidebar-primary: #6d5efc;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eceeec;
-  --sidebar-accent-foreground: #1a1e1c;
-  --sidebar-border: #d8dcd9;
-  --sidebar-ring: #0e7c6b;
+  --sidebar-accent: #eaedf5;
+  --sidebar-accent-foreground: #0e1324;
+  --sidebar-border: rgb(14 19 36 / 0.1);
+  --sidebar-ring: #6d5efc;
 }
 
 .dark {
-  --background: #151918;
-  --foreground: #e9ecea;
-  --card: #1c2120;
-  --card-foreground: #e9ecea;
-  --popover: #1c2120;
-  --popover-foreground: #e9ecea;
-  --primary: #e9ecea;
-  --primary-foreground: #151918;
-  --secondary: #252b29;
-  --secondary-foreground: #e9ecea;
-  --muted: #252b29;
-  --muted-foreground: #97a09b;
-  --accent: #252b29;
-  --accent-foreground: #e9ecea;
-  --destructive: #ee6a65;
-  --border: #2c3331;
-  --input: #38413e;
-  --ring: #3fc3aa;
-  --signal: #3fc3aa;
-  --signal-foreground: #0b1210;
-  --rack: #171c1b;
-  --chart-1: #3fc3aa;
-  --chart-2: #8fb0d6;
-  --chart-3: #e0a93a;
-  --chart-4: #b49bd6;
-  --chart-5: #ee6a65;
-  --sidebar: #1c2120;
-  --sidebar-foreground: #e9ecea;
-  --sidebar-primary: #3fc3aa;
-  --sidebar-primary-foreground: #0b1210;
-  --sidebar-accent: #252b29;
-  --sidebar-accent-foreground: #e9ecea;
-  --sidebar-border: #2c3331;
-  --sidebar-ring: #3fc3aa;
+  /* Night / Deep. */
+  --background: #05070e;
+  --foreground: #e8ecf6;
+  --card: #0c1120;
+  --card-foreground: #e8ecf6;
+  --popover: #0c1120;
+  --popover-foreground: #e8ecf6;
+  --primary: #6d5efc;
+  --primary-foreground: #ffffff;
+  --secondary: #141a2e;
+  --secondary-foreground: #e8ecf6;
+  --muted: #141a2e;
+  --muted-foreground: #a3adc2;
+  --accent: #141a2e;
+  --accent-foreground: #e8ecf6;
+  --destructive: #ff7285;
+  --border: rgb(255 255 255 / 0.08);
+  --input: rgb(255 255 255 / 0.14);
+  --ring: #8b7fff;
+  --signal: #9a8fff;
+  --signal-foreground: #ffffff;
+  --rack: #080c18;
+  --glass: rgb(12 17 32 / 0.72);
+  --status-ok: #46e6c3;
+  --status-busy: #ffb54a;
+  --status-error: #ff5c70;
+  --status-idle: #a3adc2;
+  --chart-1: #8b7fff;
+  --chart-2: #46e6c3;
+  --chart-3: #ffb54a;
+  --chart-4: #a3adc2;
+  --chart-5: #ff5c70;
+  --sidebar: #080c18;
+  --sidebar-foreground: #e8ecf6;
+  --sidebar-primary: #6d5efc;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #141a2e;
+  --sidebar-accent-foreground: #e8ecf6;
+  --sidebar-border: rgb(255 255 255 / 0.08);
+  --sidebar-ring: #8b7fff;
 }
 
 @layer base {
@@ -158,7 +167,8 @@
   h1,
   h2,
   h3 {
-    @apply font-semibold tracking-tight;
+    @apply font-semibold;
+    letter-spacing: -0.02em;
   }
   a:not([class]) {
     @apply text-signal underline underline-offset-4;
@@ -200,4 +210,18 @@
 /* One pulse when a status light changes state; never loops. */
 .status-pulse {
   animation: status-pulse 0.9s ease-out 1;
+}
+
+/* Glass is reserved for the top bar and sidebar. */
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+
+/* Night backdrop for login / request-access: a cool wash of Iris above, Aurora faint below. */
+.night-backdrop {
+  background:
+    radial-gradient(60rem 36rem at 80% -10%, rgb(109 94 252 / 0.28), transparent 60%),
+    radial-gradient(40rem 26rem at 10% 110%, rgb(70 230 195 / 0.1), transparent 60%), #05070e;
 }

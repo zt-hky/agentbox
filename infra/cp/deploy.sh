@@ -29,6 +29,23 @@ install -d -o "$CP_USER" -g "$CP_USER" -m 0755 "$CP_HOME/caddy" "$CP_HOME/.confi
 printf 'AGENTBOX_BASE_DOMAIN=%s\n' "$BASE_DOMAIN" > "$CP_HOME/cp.env"
 chown "$CP_USER:$CP_USER" "$CP_HOME/cp.env"; chmod 0644 "$CP_HOME/cp.env"
 
+# Marketing landing (apps/landing): built as the invoking user (the repo lives under /home/kyle, and pnpm/node are
+# the user's), then the static dist/ is copied to $CP_HOME/landing for Caddy (mounted read-only at /srv/landing).
+# Pre-build yourself with `pnpm --filter @agentbox/landing build` or set AGENTBOX_SKIP_LANDING_BUILD=1.
+landing_dist=$repo/apps/landing/dist
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] && [ "${AGENTBOX_SKIP_LANDING_BUILD:-0}" != 1 ]; then
+  echo "== building landing as $SUDO_USER"
+  sudo -u "$SUDO_USER" -H bash -lc "cd '$repo' && pnpm --filter @agentbox/landing build"
+fi
+[ -f "$landing_dist/index.html" ] || { echo "missing $landing_dist: run 'pnpm --filter @agentbox/landing build' first" >&2; exit 1; }
+echo "== publishing landing to $CP_HOME/landing"
+rm -rf --one-file-system "$CP_HOME/landing.new"
+install -d -o "$CP_USER" -g "$CP_USER" -m 0755 "$CP_HOME/landing.new"
+cp -a "$landing_dist/." "$CP_HOME/landing.new/"
+chown -R "$CP_USER:$CP_USER" "$CP_HOME/landing.new"
+rm -rf --one-file-system "$CP_HOME/landing"
+mv "$CP_HOME/landing.new" "$CP_HOME/landing"
+
 # Stage the build context: /home/kyle is not readable by abx-cp, so copy the tree (no node_modules etc).
 src=$CP_HOME/build/src
 rm -rf --one-file-system "$src"

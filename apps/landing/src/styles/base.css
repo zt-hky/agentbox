@@ -1,0 +1,410 @@
+/* AgentBox brand tokens, fonts, reset, shared components. Palette per PLAN.md section 2. */
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-latin-400-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-latin-500-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-latin-600-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-vietnamese-400-normal.woff2") format("woff2");
+  unicode-range:
+    U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301,
+    U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-vietnamese-500-normal.woff2") format("woff2");
+  unicode-range:
+    U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301,
+    U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-vietnamese-600-normal.woff2") format("woff2");
+  unicode-range:
+    U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301,
+    U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2");
+}
+/* Metric-matched fallbacks so the swap does not move anything (CLS 0). */
+@font-face {
+  font-family: "BVP Fallback";
+  src: local("Arial");
+  size-adjust: 104%;
+  ascent-override: 98%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "JBM Fallback";
+  src: local("Courier New");
+  size-adjust: 100%;
+  ascent-override: 102%;
+  descent-override: 30%;
+  line-gap-override: 0%;
+}
+
+@property --box-light {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+:root {
+  --night: #05070e;
+  --deep: #0c1120;
+  --deep-2: #121a30;
+  --iris: #6d5efc;
+  --iris-hi: #a79eff;
+  --iris-ink: #5546e6;
+  --aurora: #46e6c3;
+  --ember: #ffb54a;
+  --cloud: #f4f6fa;
+  --ink: #0e1324;
+  --mist: #a3adc2;
+  --mist-ink: #5b6479;
+  --error: #ff5c70;
+  --text: #eef1f8;
+  --hair: rgba(255, 255, 255, 0.08);
+  --hair-strong: rgba(255, 255, 255, 0.16);
+  --hair-light: rgba(14, 19, 36, 0.1);
+  --sans:
+    "Be Vietnam Pro", "BVP Fallback", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "JBM Fallback", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --r-stage: 28px;
+  --r-card: 18px;
+  --r-ctl: 12px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --pad: clamp(20px, 4vw, 48px);
+  --nav-h: 64px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  background: var(--night);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 100%;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: auto;
+  scroll-padding-top: 88px;
+}
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+body {
+  margin: 0;
+  font-size: clamp(17px, 1.3vw, 19px);
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+figure,
+pre {
+  margin: 0;
+}
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+img,
+svg,
+picture {
+  display: block;
+  max-width: 100%;
+}
+b,
+strong {
+  font-weight: 600;
+}
+:focus-visible {
+  outline: 2px solid var(--iris-hi);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+.light :focus-visible {
+  outline-color: var(--iris-ink);
+}
+::selection {
+  background: rgba(109, 94, 252, 0.45);
+}
+
+.skip {
+  position: fixed;
+  left: 12px;
+  top: -60px;
+  z-index: 100;
+  background: #fff;
+  color: var(--ink);
+  padding: 10px 16px;
+  border-radius: 999px;
+  transition: top 0.2s;
+}
+.skip:focus {
+  top: 12px;
+}
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
+  padding-inline: var(--pad);
+}
+.mono {
+  font-family: var(--mono);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.center {
+  text-align: center;
+}
+
+/* Type */
+.display {
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.hero-title {
+  font-size: clamp(46px, 5.9vw, 88px);
+}
+.scene-title {
+  font-size: clamp(40px, 5.6vw, 80px);
+}
+.section-title {
+  font-size: clamp(32px, 4vw, 56px);
+  letter-spacing: -0.012em;
+}
+.lede {
+  font-size: clamp(19px, 1.7vw, 24px);
+  line-height: 1.4;
+  max-width: 34em;
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: clamp(12px, 0.95vw, 13px);
+  letter-spacing: 0.08em;
+  color: var(--mist);
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+.two-tone {
+  color: var(--mist);
+}
+.two-tone b {
+  color: var(--text);
+  font-weight: 600;
+}
+.light .two-tone {
+  color: var(--mist-ink);
+}
+.light .two-tone b {
+  color: var(--ink);
+}
+
+/* Glass */
+.glass {
+  background: rgba(12, 17, 32, 0.72);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--hair);
+}
+
+/* Buttons */
+.btn {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 24px;
+  border-radius: 999px;
+  font-weight: 500;
+  font-size: 16px;
+  white-space: nowrap;
+  transition:
+    transform 0.25s var(--ease),
+    background-color 0.25s,
+    border-color 0.25s,
+    color 0.25s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-sm {
+  height: 40px;
+  padding: 0 18px;
+  font-size: 15px;
+}
+.btn-lg {
+  height: 56px;
+  padding: 0 30px;
+  font-size: 17px;
+}
+.btn-primary {
+  background: var(--iris);
+  color: #fff;
+}
+.btn-primary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0;
+  background: linear-gradient(135deg, var(--iris), #3fc7ad 110%);
+  transition: opacity 0.3s;
+}
+.btn-primary:hover::before {
+  opacity: 1;
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  border: 1px solid var(--hair-strong);
+  color: var(--text);
+}
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.light .btn-ghost {
+  border-color: var(--hair-light);
+  color: var(--ink);
+}
+.light .btn-ghost:hover {
+  background: rgba(14, 19, 36, 0.05);
+  border-color: rgba(14, 19, 36, 0.3);
+}
+.btn:active {
+  transform: scale(0.98);
+}
+
+/* Shared mini bars */
+.bar {
+  display: block;
+  height: 8px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.bar u {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--iris), var(--aurora));
+  transform-origin: left;
+  transform: scaleX(var(--v, 0.5));
+  text-decoration: none;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--aurora);
+  box-shadow: 0 0 10px var(--aurora);
+}
+
+/* Reveal (state set only when JS is present; `no-motion` is the failsafe) */
+.js .reveal {
+  opacity: 0;
+  transform: translateY(24px);
+}
+.no-motion .reveal,
+.no-motion [data-boot] {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .js .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}

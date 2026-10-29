@@ -1,39 +1,51 @@
 # AgentBox web design reference
 
-Concept: an instrument rack. A workspace is a module with a status light, a name plate and three
-level meters (CPU, memory, disk). The module is the one memorable element; everything around it
-stays quiet. Source of truth for tokens: `app/globals.css`. Shared components: `components/`.
+Concept: "Light in the box" (shared with the landing, see `apps/landing/PLAN.md` §2). A workspace is
+a dark glass box that lights up when awake and dims when asleep. In the app that becomes an instrument
+rack: a workspace is a module with a status light, a name plate and three level meters (CPU, memory,
+disk). Night is the setting (dark is the default theme; light and system stay selectable). Source of
+truth for tokens: `app/globals.css`. Shared components: `components/`.
 
 ## Tokens (light / dark)
 
-| Token (Tailwind)                 | Light                                   | Dark      | Use                                         |
-| -------------------------------- | --------------------------------------- | --------- | ------------------------------------------- |
-| `bg-background` (paper)          | `#F4F5F3`                               | `#151918` | page                                        |
-| `bg-card` (panel)                | `#FFFFFF`                               | `#1C2120` | panels, inputs, sidebar                     |
-| `bg-rack`                        | `#EEF0EE`                               | `#171C1B` | recessed areas: meter bay, code, table head |
-| `text-foreground` / `bg-primary` | `#1A1E1C`                               | `#E9ECEA` | text, primary buttons                       |
-| `border-border`                  | `#D8DCD9`                               | `#2C3331` | hairlines                                   |
-| `text-muted-foreground`          | `#5E6662`                               | `#97A09B` | secondary text                              |
-| `text-signal` / `bg-signal`      | `#0E7C6B`                               | `#3FC3AA` | focus ring, links, selected nav, chart-1    |
-| `status-ok/busy/error/idle`      | `#2FA866` `#D9961A` `#D9443F` `#8A938E` | same      | state only, never decoration                |
+| Token (Tailwind)        | Light (Cloud / Ink)   | Dark (Night / Deep)        | Use                                          |
+| ----------------------- | --------------------- | -------------------------- | -------------------------------------------- |
+| `bg-background`         | `#F4F6FA` Cloud       | `#05070E` Night            | page                                         |
+| `bg-card`               | `#FFFFFF`             | `#0C1120` Deep             | panels, inputs                               |
+| `bg-sidebar`            | `#FFFFFF`             | `#080C18`                  | sidebar                                      |
+| `bg-rack`               | `#EDF0F7`             | `#080C18`                  | recessed areas: meter bay, code, table head  |
+| `text-foreground`       | `#0E1324` Ink         | `#E8ECF6`                  | text                                         |
+| `bg-primary`, `--ring`  | `#6D5EFC` Iris        | `#6D5EFC` (ring `#8B7FFF`) | primary buttons, focus ring, sidebar primary |
+| `text-signal`           | `#5A49EC`             | `#9A8FFF`                  | links, selected nav (Iris tuned for text)    |
+| `text-muted-foreground` | `#596380`             | `#A3ADC2` Mist             | secondary text                               |
+| `border-border`         | `rgb(14 19 36 / .10)` | `rgb(255 255 255 / .08)`   | hairlines                                    |
+| `bg-glass` / `.glass`   | white 72%             | Deep 72%                   | top bar only (blur 20px, saturate 140%)      |
 
-`text-destructive` is a darker red (`#C23631` / `#EE6A65`) for text contrast; the status lights use
-the brief's exact reds. Charts: `--chart-1` signal, `--chart-2` slate blue, `--chart-3` amber.
+Status lights (state only, never decoration): `status-ok` Aurora (`#12B894` light / `#46E6C3` dark) =
+running, ready, done; `status-busy` Ember (`#F0A030` / `#FFB54A`) = starting, stopping, provisioning,
+pending; `status-error` `#FF5C70`; `status-idle` Mist (`#8D97AD` / `#A3ADC2`) = sleeping, queued.
+`text-destructive` is a deeper red in light (`#D12C45`) for text contrast. Charts: `--chart-1` Iris,
+`--chart-2` Aurora, `--chart-3` Ember. Iris → Aurora gradient exists only in the logo and the auth
+box light.
 
 ## Type
 
-- Schibsted Grotesk (`font-sans`, default) for everything; JetBrains Mono (`font-mono`, or `<Mono>`)
-  only for machine text: slugs as hostnames, image IDs, ports, UIDs, commands, logs, process lists.
+- Be Vietnam Pro (`font-sans`, default; weights 400/500/600/700; latin, latin-ext and vietnamese
+  subsets) for everything; JetBrains Mono (`font-mono`, or `<Mono>`) only for machine text: slugs as
+  hostnames, image IDs, ports, UIDs, commands, logs, process lists.
 - Scale: `text-xs` 12, `text-meta` 13, `text-sm` 14, `text-base` 16, `text-xl` 20, `text-title` 28,
-  `text-display` 36. Headings are 600 with negative tracking (applied to h1-h3 globally).
-- Schibsted's tabular figures widen the decimal point and comma visibly, so `tabular-nums` is not applied
-  globally; use it only on integer-only columns (counts, ports) where alignment matters.
+  `text-display` 36. Headings are 600 with -0.02em tracking (applied to h1-h3 globally).
+- Avoid global `tabular-nums` (it widens decimal points); use it only on integer-only columns.
 
 ## Shape and motion
 
-- Radius: `rounded-xl` 14px workspace module only, `rounded-lg` 10px panels/cards/tables,
-  `rounded-md` 7px controls, `rounded-sm` 5px square badges. Pills (`rounded-full`) only for status.
-- Hairline borders, no shadows, except `shadow-module` on the hero module.
+- Radius: `rounded-xl` 28px workspace hero module only, `rounded-lg` 18px panels/cards/tables,
+  `rounded-md` 12px controls, `rounded-sm` 6px square badges. Pills (`rounded-full`) for status.
+- Hairline borders, no shadows, except `shadow-module` on the hero module. Glass only on the sticky
+  top bar (`.glass`); no glows in tables or lists. The one glow: the running hero status light and the
+  AgentBox object on the auth pages.
+- Login and request-access are always Night (`dark` wrapper + `.night-backdrop`) regardless of the theme
+  choice, with the static AgentBox object (`AuthShell`).
 - No continuous animation. A `StatusLight` pulses once when its status changes (CSS, keyed remount).
   `prefers-reduced-motion` disables all animation/transition globally.
 
@@ -72,7 +84,7 @@ live in `components/nav-config.ts` (`ADMIN_NAV_GROUPS`: People, Workspaces, Plat
   return a server-action `ActionResult`; on `{ ok: false }` the dialog stays open showing the error.
 - `AllowanceMeters({ used, plan })` three plan-allowance meters (runtime, CPU, memory).
 - `DataTable({ columns, data, empty?, flush? })` **client**, restyled; `UsageChart({ data, endDate })` **client**.
-- `Logo`, `AuthShell` (login/waiting frame) for public pages.
+- `Logo` (isometric box mark with Iris → Aurora top slot), `AuthShell` (Night login/waiting frame with the AgentBox object) for public pages.
 - Primitives in `components/ui/*` are restyled via tokens/variants. `Badge` has a `status` variant (pill); the
   default badge is a 5px-radius tag. Do not override primitives per use; add a variant instead.
 

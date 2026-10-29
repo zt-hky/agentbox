@@ -80,6 +80,7 @@ export function StatusLight({
       className={cn(
         "status-pulse inline-block shrink-0 rounded-full",
         SIZE[size],
+        size === "lg" && tone === "ok" && "shadow-[0_0_12px_var(--light)]",
         TONE_CLASS[tone],
         className,
       )}

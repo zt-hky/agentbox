@@ -1,0 +1,44 @@
+{
+  "source": "production",
+  "fetchedAt": "2026-10-29",
+  "creditLabel": "credit",
+  "prices": { "runtimePerHour": 500000, "cpuCorePerHour": 200000, "memGbPerHour": 50000 },
+  "plans": [
+    {
+      "name": "Free",
+      "kind": "free",
+      "monthlyPriceMicro": 0,
+      "cpu": 2,
+      "memoryMb": 1024,
+      "diskGb": 5,
+      "pids": 512,
+      "allowanceRuntimeHours": 8,
+      "allowanceCpuCoreHours": 8,
+      "allowanceMemGbHours": 10
+    },
+    {
+      "name": "Pay as you go",
+      "kind": "payg",
+      "monthlyPriceMicro": 0,
+      "cpu": 4,
+      "memoryMb": 8192,
+      "diskGb": 30,
+      "pids": 2048,
+      "allowanceRuntimeHours": 0,
+      "allowanceCpuCoreHours": 0,
+      "allowanceMemGbHours": 0
+    },
+    {
+      "name": "Pro",
+      "kind": "package",
+      "monthlyPriceMicro": 100000000,
+      "cpu": 4,
+      "memoryMb": 8192,
+      "diskGb": 50,
+      "pids": 2048,
+      "allowanceRuntimeHours": 160,
+      "allowanceCpuCoreHours": 240,
+      "allowanceMemGbHours": 480
+    }
+  ]
+}

@@ -9,9 +9,21 @@
 	}
 }
 
+# The apex serves the static marketing site built from apps/landing (published by deploy.sh).
 http://{$AGENTBOX_BASE_DOMAIN}:8480 {
 	bind 127.0.0.1
-	redir https://app.{$AGENTBOX_BASE_DOMAIN}{uri} 308
+	root * /srv/landing
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Cache-Control "no-cache"
+	}
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@static path /img/* /fonts/* /favicon.svg /favicon-32.png /apple-touch-icon.png /og.png
+	header @static Cache-Control "public, max-age=86400"
+	file_server
 }
 
 http://app.{$AGENTBOX_BASE_DOMAIN}:8480 {

@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>AgentBox: every agent deserves a machine of its own</title>
+    <meta
+      name="description"
+      content="Your own cloud workspace with T3 Code, VS Code, Claude Code, Codex and Oh My Pi ready in any browser. Rootless, firewalled, and asleep when you are."
+    />
+    <meta name="theme-color" content="#05070E" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="canonical" href="https://agentbox.io.vn/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="AgentBox" />
+    <meta property="og:url" content="https://agentbox.io.vn/" />
+    <meta property="og:title" content="AgentBox: every agent deserves a machine of its own" />
+    <meta
+      property="og:description"
+      content="Your own cloud workspace with T3 Code, VS Code, Claude Code, Codex and Oh My Pi ready in any browser."
+    />
+    <meta property="og:image" content="https://agentbox.io.vn/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="preload"
+      href="/fonts/be-vietnam-pro-latin-600-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/be-vietnam-pro-latin-400-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <script>
+      document.documentElement.classList.add("js");
+      if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
+        document.documentElement.classList.add("boot");
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="sprite" aria-hidden="true"><!--art:glyphs--></div>
+
+    <!-- 0. NAV -->
+    <header class="nav" id="nav">
+      <div class="nav-pill glass">
+        <a class="brand" href="#top" aria-label="AgentBox, back to top">
+          <!--art:brand/mark class="mark"-->
+          <span>AgentBox</span>
+        </a>
+        <nav class="nav-links" aria-label="Sections">
+          <a href="#how">How it works</a>
+          <a href="#security">Security</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div class="nav-cta">
+          <a class="nav-signin" href="{{app}}">Sign in</a>
+          <a class="btn btn-primary btn-sm" href="{{app}}">Request access</a>
+          <button
+            class="nav-menu"
+            type="button"
+            aria-expanded="false"
+            aria-controls="menu"
+            aria-label="Menu"
+          >
+            <span></span><span></span>
+          </button>
+        </div>
+      </div>
+      <div class="menu glass" id="menu" hidden>
+        <a href="#how">How it works</a>
+        <a href="#security">Security</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+        <a href="{{app}}">Sign in</a>
+      </div>
+    </header>
+    <a class="dock btn btn-primary" id="dock" href="{{app}}">Request access</a>
+
+    <main id="main">
+      <!-- 1. HERO -->
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-stage">
+          <div class="hero-sky" aria-hidden="true"></div>
+          <div class="wrap hero-grid">
+            <div class="hero-copy">
+              <p class="eyebrow mono" data-boot>[ AGENTBOX ]</p>
+              <h1 id="hero-title" class="display hero-title" data-split>
+                Every agent<br />deserves a<br />machine of<br />its own.
+              </h1>
+              <p class="lede two-tone" data-boot>
+                <b>Your own cloud workspace,</b> with T3 Code, VS Code, Claude Code, Codex and Oh My
+                Pi ready in any browser.
+              </p>
+              <div class="cta-row" data-boot>
+                <a class="btn btn-primary btn-lg" href="{{app}}">Request access</a>
+                <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+              </div>
+            </div>
+            <div class="hero-visual" id="hero-visual">
+              <div class="hero-halo" aria-hidden="true"></div>
+              <div class="box-wrap" id="hero-box"><!--art:box class="box-svg"--></div>
+              <div class="pop pop-a glass" aria-hidden="true">
+                <div class="pop-bar"><i></i><i></i><i></i><span class="mono">T3 Code</span></div>
+                <div class="pop-body"><s></s><s class="w70"></s><s class="w50 on"></s></div>
+              </div>
+              <div class="pop pop-b glass" aria-hidden="true">
+                <div class="pop-bar"><i></i><i></i><i></i><span class="mono">VS Code</span></div>
+                <div class="pop-body">
+                  <s class="w50"></s><s class="w80"></s><s class="w60 on"></s>
+                </div>
+              </div>
+              <div class="pop pop-c glass" aria-hidden="true">
+                <div class="pop-bar"><i></i><i></i><i></i><span class="mono">terminal</span></div>
+                <div class="pop-body"><s class="w60 on"></s><s class="w40"></s></div>
+              </div>
+              <div
+                class="term glass"
+                id="term"
+                role="img"
+                aria-label="A terminal opens the workspace named maple. It wakes, then reports running with a ticking uptime."
+              >
+                <div class="term-bar">
+                  <i></i><i></i><i></i><span class="mono">your terminal</span>
+                </div>
+                <div class="term-body mono" aria-hidden="true">
+                  <p>
+                    <span class="prompt">$</span> <span id="t-cmd">open maple</span
+                    ><span class="caret"></span>
+                  </p>
+                  <p class="t-wake">waking<span class="dots">…</span></p>
+                  <p class="t-run">
+                    <span class="dot"></span>running <em>·</em> uptime <b id="uptime">00:00:41</b>
+                  </p>
+                  <p class="t-host">maple-t3.agentbox.io.vn</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="scroll-cue mono" aria-hidden="true"><span></span>scroll</div>
+        </div>
+      </section>
+
+      <!-- 2. SURFACES -->
+      <section class="surfaces" aria-label="What is inside">
+        <div class="wrap">
+          <p class="eyebrow mono center">[ INSIDE EVERY WORKSPACE ]</p>
+          <ul class="tiles">
+            <li class="tile">
+              <svg aria-hidden="true"><use href="#g-t3" /></svg>
+              <span>T3 Code</span>
+            </li>
+            <li class="tile">
+              <svg aria-hidden="true"><use href="#g-vscode" /></svg>
+              <span>VS Code</span>
+            </li>
+            <li class="tile">
+              <svg aria-hidden="true"><use href="#g-claude" /></svg>
+              <span>Claude Code</span>
+            </li>
+            <li class="tile">
+              <svg aria-hidden="true"><use href="#g-codex" /></svg>
+              <span>Codex</span>
+            </li>
+            <li class="tile">
+              <svg aria-hidden="true"><use href="#g-omp" /></svg>
+              <span>Oh My Pi</span>
+            </li>
+            <li class="tile">
+              <svg aria-hidden="true"><use href="#g-github" /></svg>
+              <span>GitHub CLI</span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 3. ASSEMBLY -->
+      <section class="scene assemble" id="how" aria-labelledby="how-title">
+        <div class="stage">
+          <div class="wrap asm-grid">
+            <div class="asm-copy">
+              <p class="eyebrow mono">[ YOUR MACHINE ]</p>
+              <h2 id="how-title" class="display scene-title" data-split>
+                Your machine,<br />assembled.
+              </h2>
+              <ol class="asm-steps">
+                <li class="asm-step">
+                  <span class="n mono">01</span>
+                  <div>
+                    <h3>A read-only system.</h3>
+                    <p>Ubuntu 26.04, mounted read-only. Nothing you run can change it.</p>
+                  </div>
+                </li>
+                <li class="asm-step">
+                  <span class="n mono">02</span>
+                  <div>
+                    <h3>Your own Linux user.</h3>
+                    <p>One user per workspace, never root, with a private identity on the host.</p>
+                  </div>
+                </li>
+                <li class="asm-step">
+                  <span class="n mono">03</span>
+                  <div>
+                    <h3>A rootless container.</h3>
+                    <p>Podman without a daemon or root. Every capability dropped.</p>
+                  </div>
+                </li>
+                <li class="asm-step">
+                  <span class="n mono">04</span>
+                  <div>
+                    <h3>The tools, installed.</h3>
+                    <p>
+                      T3 Code, VS Code, Claude Code, Codex, Oh My Pi, git, gh, Node 24, Python, uv,
+                      ripgrep.
+                    </p>
+                  </div>
+                </li>
+                <li class="asm-step">
+                  <span class="n mono">05</span>
+                  <div>
+                    <h3>Your files, kept.</h3>
+                    <p>
+                      <span class="mono">/workspace</span> sits on its own disk quota and survives
+                      sleep.
+                    </p>
+                  </div>
+                </li>
+                <li class="asm-step">
+                  <span class="n mono">06</span>
+                  <div>
+                    <h3>Its own address.</h3>
+                    <p>
+                      <span class="mono">maple-t3.agentbox.io.vn</span>. Every tool gets a hostname
+                      of its own.
+                    </p>
+                  </div>
+                </li>
+              </ol>
+              <div class="asm-progress" aria-hidden="true"><i></i></div>
+              <div class="asm-count" aria-hidden="true">
+                <span>01</span><span>02</span><span>03</span><span>04</span><span>05</span
+                ><span>06</span>
+              </div>
+            </div>
+            <div class="asm-art" id="asm-art">
+              <div class="asm-halo" aria-hidden="true"></div>
+              <!--art:assembly class="asm-svg"-->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. ANY BROWSER -->
+      <section class="anywhere" id="anywhere" aria-labelledby="any-title">
+        <div class="any-photo" aria-hidden="true">
+          <!--pic:saigon|saigon-portrait||photo|100vw-->
+          <div class="any-shade"></div>
+        </div>
+        <div class="wrap any-grid">
+          <div class="any-copy">
+            <p class="eyebrow mono">[ ANY BROWSER ]</p>
+            <h2 id="any-title" class="display scene-title" data-split>
+              Any browser.<br />Any device.
+            </h2>
+            <p class="lede two-tone reveal">
+              <b>No install. No pairing.</b> Open your workspace's address, sign in once, and your
+              editor and your agents are right where you left them. On a laptop, a tablet, or the
+              phone in your pocket.
+            </p>
+          </div>
+          <div class="any-frames">
+            <div class="frame-browser glass" id="frame-browser">
+              <div class="fb-bar">
+                <span class="fb-dots"><i></i><i></i><i></i></span>
+                <span class="fb-url mono"
+                  ><svg viewBox="0 0 12 12" aria-hidden="true">
+                    <rect x="2.5" y="5" width="7" height="5" rx="1.2" />
+                    <path d="M4 5V3.6a2 2 0 0 1 4 0V5" /></svg
+                  >maple-code.agentbox.io.vn</span
+                >
+              </div>
+              <div class="vsc" aria-hidden="true">
+                <div class="vsc-act"><i class="on"></i><i></i><i></i><i></i></div>
+                <div class="vsc-tree mono">
+                  <p class="h">WORKSPACE</p>
+                  <p class="d">src</p>
+                  <p class="f on">billing.ts</p>
+                  <p class="f">meter.ts</p>
+                  <p class="f">index.ts</p>
+                  <p class="d">test</p>
+                  <p class="f">package.json</p>
+                </div>
+                <div class="vsc-main">
+                  <div class="vsc-tabs mono">
+                    <span class="on">billing.ts</span><span>meter.ts</span>
+                  </div>
+                  <pre
+                    class="vsc-code mono"
+                  ><span class="k">export</span> <span class="k">function</span> <span class="fn">charge</span>(hours: <span class="t">number</span>) {
+  <span class="k">const</span> rate = <span class="n">0.5</span>;
+  <span class="k">return</span> <span class="fn">round</span>(hours * rate);
+}
+
+<span class="k">export function</span> <span class="fn">refund</span>(hours: <span class="t">number</span>) {
+  <span class="k">return</span> -<span class="fn">charge</span>(hours);
+}
+
+<span class="c">// tests run in the terminal below</span></pre>
+                  <div class="vsc-term mono">
+                    <span class="p">$</span> pnpm test <span class="ok">24 passed</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="frame-phone" id="frame-phone">
+              <div class="ph" aria-hidden="true">
+                <div class="ph-island"></div>
+                <div class="ph-url mono">maple-t3.agentbox.io.vn</div>
+                <div class="ph-chat">
+                  <p class="m user">Fix the failing billing test.</p>
+                  <p class="m tool mono"><i></i>Reading billing.test.ts</p>
+                  <p class="m tool mono"><i></i>Edited billing.ts <u>+12</u> <s>-3</s></p>
+                  <p class="m agent">
+                    Rounding happened before the multiply. Fixed, and all tests pass.
+                  </p>
+                  <div class="ph-input"><span>Ask for follow-up changes</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. MARQUEE -->
+      <section class="marquee" id="marquee" aria-label="Your machine. Your agents. Any browser.">
+        <div class="mq-row mq-outline" aria-hidden="true">
+          <div class="mq-track">
+            <span>YOUR MACHINE</span><span>YOUR AGENTS</span><span>ANY BROWSER</span
+            ><span>YOUR MACHINE</span><span>YOUR AGENTS</span><span>ANY BROWSER</span>
+          </div>
+        </div>
+        <div class="mq-row mq-solid" aria-hidden="true">
+          <div class="mq-track">
+            <span>ANY BROWSER</span><span>YOUR MACHINE</span><span>YOUR AGENTS</span
+            ><span>ANY BROWSER</span><span>YOUR MACHINE</span><span>YOUR AGENTS</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. SECURITY -->
+      <section class="scene security" id="security" aria-labelledby="sec-title">
+        <div class="sec-smoke" aria-hidden="true"><!--pic:smoke||||100vw--></div>
+        <div class="stage">
+          <div class="sec-head">
+            <p class="eyebrow mono center">[ SECURITY ]</p>
+            <h2 id="sec-title" class="display scene-title center" data-split>
+              Nothing gets in.<br />Nothing gets out.
+            </h2>
+          </div>
+          <div class="sec-art" id="sec-art">
+            <!--art:rings class="rings-svg"-->
+            <span class="pkt pkt-lan mono" data-pkt="lan">LAN <i>192.168.x</i></span>
+            <span class="pkt pkt-vpn mono" data-pkt="vpn">VPN <i>100.x</i></span>
+            <span class="pkt pkt-meta mono" data-pkt="meta">Cloud metadata <i>169.254.x</i></span>
+            <span class="pkt pkt-tenant mono" data-pkt="tenant">Other workspaces</span>
+          </div>
+          <p class="sec-note center two-tone" id="sec-note">
+            <b>The firewall sits outside the box.</b> Private networks, VPN addresses, cloud
+            metadata and every other workspace are blocked. The open internet is not.
+          </p>
+        </div>
+      </section>
+
+      <section class="bento-wrap" aria-label="How the sandbox is locked down">
+        <div class="wrap">
+          <ul class="bento">
+            <li class="cell reveal">
+              <div class="scene-ui mono">
+                <p><span class="p">$</span> id -u</p>
+                <p class="big">1000</p>
+                <p class="dim">a private user, mapped to its own host identity</p>
+              </div>
+              <h3>Never root.</h3>
+              <p>Agents run as an ordinary user. The host never sees root from a workspace.</p>
+            </li>
+            <li class="cell reveal">
+              <div class="scene-ui mono">
+                <p><span class="p">$</span> grep CapEff /proc/self/status</p>
+                <p class="dim">CapEff</p>
+                <p class="big zero">0000000000000000</p>
+                <p class="dim">no capabilities, and no-new-privileges</p>
+              </div>
+              <h3>Every capability dropped.</h3>
+              <p>The kernel privileges a container normally keeps are gone, all of them.</p>
+            </li>
+            <li class="cell cell-wide reveal">
+              <div class="scene-ui mono">
+                <p><span class="p">$</span> touch /usr/bin/x</p>
+                <p class="err">touch: Read-only file system</p>
+                <p class="dim">your files live in /workspace</p>
+              </div>
+              <h3>A system that stays put.</h3>
+              <p>The base system is read-only. A broken install can't break the machine.</p>
+            </li>
+            <li class="cell cell-wide reveal">
+              <div class="scene-ui fw mono">
+                <p class="fw-h"><span>EGRESS</span><span>RULE</span></p>
+                <p class="fw-r"><span>internet</span><b class="allow">allow</b></p>
+                <p class="fw-r"><span>192.168.0.0/16 · 10.0.0.0/8</span><b class="deny">deny</b></p>
+                <p class="fw-r"><span>100.64.0.0/10 (VPN)</span><b class="deny">deny</b></p>
+                <p class="fw-r"><span>169.254.169.254 (metadata)</span><b class="deny">deny</b></p>
+                <p class="fw-r"><span>other workspaces</span><b class="deny">deny</b></p>
+              </div>
+              <h3>A firewall with a short allow-list.</h3>
+              <p>Outbound traffic can reach the internet and nothing private.</p>
+            </li>
+            <li class="cell reveal">
+              <div class="scene-ui meters mono">
+                <p>
+                  <span>CPU</span><i class="bar"><u style="--v: 0.62"></u></i>
+                </p>
+                <p>
+                  <span>RAM</span><i class="bar"><u style="--v: 0.78"></u></i>
+                </p>
+                <p>
+                  <span>PIDs</span><i class="bar"><u style="--v: 0.34"></u></i>
+                </p>
+              </div>
+              <h3>Hard resource limits.</h3>
+              <p>
+                CPU, memory and process counts are capped per workspace. A runaway job stays in its
+                box.
+              </p>
+            </li>
+            <li class="cell reveal">
+              <div class="scene-ui disk mono">
+                <p class="dim">/workspace</p>
+                <i class="bar"><u style="--v: 0.94"></u></i>
+                <p class="err">Disk quota exceeded</p>
+              </div>
+              <h3>A real disk quota.</h3>
+              <p>
+                The filesystem enforces your limit, so one full disk never becomes someone else's
+                problem.
+              </p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 7. SLEEP & WAKE -->
+      <section class="scene sleep" id="sleep" aria-labelledby="sleep-title">
+        <div class="sleep-photo" aria-hidden="true"><!--pic:aurora-wide|aurora||photo|100vw--></div>
+        <div class="stage">
+          <div class="sleep-head">
+            <p class="eyebrow mono center">[ SLEEP &amp; WAKE ]</p>
+            <h2 id="sleep-title" class="display scene-title center" data-split>
+              Asleep when<br />you are.
+            </h2>
+          </div>
+          <div class="sleep-art" id="sleep-art">
+            <div class="sleep-halo" aria-hidden="true"></div>
+            <!--art:box-sleeping class="box-svg sleep-box sleep-off"-->
+            <!--art:box-awake class="box-svg sleep-box sleep-on"-->
+            <svg class="moon-svg" viewBox="0 0 1000 300" aria-hidden="true" focusable="false">
+              <path
+                id="moon-path"
+                d="M20 280 C 280 -60, 720 -60, 980 280"
+                fill="none"
+                stroke="rgba(163,173,194,.28)"
+                stroke-dasharray="3 9"
+                stroke-linecap="round"
+              />
+              <g id="moon">
+                <path d="M0 -34 A34 34 0 1 0 0 34 A26 26 0 1 1 0 -34 Z" fill="#eef1f8" />
+              </g>
+            </svg>
+            <p class="sleep-state mono" id="sleep-state" aria-hidden="true">
+              <span class="dot"></span><em>awake</em>
+            </p>
+          </div>
+          <ul class="stats">
+            <li><b>Sleeps</b> when idle.</li>
+            <li><b>Wakes</b> in seconds.</li>
+            <li><b>Your files</b> stay.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 8. HIGHLIGHTS -->
+      <section class="highlights" id="highlights" aria-labelledby="hl-title">
+        <div class="wrap hl-head">
+          <h2 id="hl-title" class="display section-title">Get the highlights.</h2>
+        </div>
+        <div
+          class="hl-viewport"
+          id="hl-viewport"
+          tabindex="0"
+          role="region"
+          aria-roledescription="carousel"
+          aria-label="Highlights"
+        >
+          <ul class="hl-track" id="hl-track">
+            <li class="hl-card" aria-label="1 of 6">
+              <p class="hl-cap">Three agents, <span>one workspace. Pick one per task.</span></p>
+              <div class="hl-ui ui-picker" aria-hidden="true">
+                <div class="pk-h mono">New thread</div>
+                <div class="pk-row">
+                  <svg><use href="#g-claude" /></svg><b>Claude Code</b><em class="mono">ready</em>
+                </div>
+                <div class="pk-row">
+                  <svg><use href="#g-codex" /></svg><b>Codex</b><em class="mono">ready</em>
+                </div>
+                <div class="pk-row on">
+                  <svg><use href="#g-omp" /></svg><b>Oh My Pi</b><em class="mono">selected</em>
+                </div>
+                <div class="pk-in">
+                  Ask the agent to do something in <b class="mono">/workspace</b>
+                </div>
+              </div>
+            </li>
+            <li class="hl-card" aria-label="2 of 6">
+              <p class="hl-cap">
+                GitHub in one click. <span>Connect once, and gh is ready inside.</span>
+              </p>
+              <div class="hl-ui ui-gh" aria-hidden="true">
+                <div class="gh-card">
+                  <svg><use href="#g-github" /></svg>
+                  <div>
+                    <b>GitHub</b>
+                    <p>Clone, push and open pull requests from your workspace.</p>
+                  </div>
+                  <span class="gh-btn">Connect GitHub</span>
+                </div>
+                <div class="gh-card ok">
+                  <svg><use href="#g-github" /></svg>
+                  <div>
+                    <b>Connected</b>
+                    <p class="mono">gh auth status: logged in</p>
+                  </div>
+                  <span class="gh-btn ghost">Disconnect</span>
+                </div>
+              </div>
+            </li>
+            <li class="hl-card" aria-label="3 of 6">
+              <p class="hl-cap">
+                Live usage meters. <span>See the hours your workspace ran, every day.</span>
+              </p>
+              <div class="hl-ui ui-usage" aria-hidden="true">
+                <div class="us-h"><b>Usage, last 7 days</b><span class="mono">hours run</span></div>
+                <div class="us-bars">
+                  <i style="--v: 0.35"><u>Mon</u></i
+                  ><i style="--v: 0.6"><u>Tue</u></i
+                  ><i style="--v: 0.82"><u>Wed</u></i
+                  ><i style="--v: 0.5"><u>Thu</u></i
+                  ><i style="--v: 0.9"><u>Fri</u></i
+                  ><i style="--v: 0.2"><u>Sat</u></i
+                  ><i style="--v: 0.44"><u>Sun</u></i>
+                </div>
+              </div>
+            </li>
+            <li class="hl-card" aria-label="4 of 6">
+              <p class="hl-cap">
+                Sessions you can revoke.
+                <span>Every browser that signed in, one click away from signed out.</span>
+              </p>
+              <div class="hl-ui ui-sessions" aria-hidden="true">
+                <div class="se-row">
+                  <div>
+                    <b>Chrome on Linux</b>
+                    <p class="mono">active · this device</p>
+                  </div>
+                  <span class="se-btn">Revoke</span>
+                </div>
+                <div class="se-row">
+                  <div>
+                    <b>Safari on iPhone</b>
+                    <p class="mono">active</p>
+                  </div>
+                  <span class="se-btn">Revoke</span>
+                </div>
+                <div class="se-row dim">
+                  <div>
+                    <b>Firefox on Windows</b>
+                    <p class="mono">revoked</p>
+                  </div>
+                  <span class="se-state mono">done</span>
+                </div>
+              </div>
+            </li>
+            <li class="hl-card" aria-label="5 of 6">
+              <p class="hl-cap">A dashboard that tells you <span>what is left this cycle.</span></p>
+              <div class="hl-ui ui-allow" aria-hidden="true">
+                <div class="al-h">
+                  <b>Allowance this cycle</b><span class="pill-live mono"><i></i>running</span>
+                </div>
+                <p class="al-r">
+                  <span>Runtime</span><i class="bar"><u style="--v: 0.58"></u></i>
+                </p>
+                <p class="al-r">
+                  <span>CPU</span><i class="bar"><u style="--v: 0.4"></u></i>
+                </p>
+                <p class="al-r">
+                  <span>Memory</span><i class="bar"><u style="--v: 0.72"></u></i>
+                </p>
+                <div class="al-b"><span>Billing cycle</span><b class="mono">resets monthly</b></div>
+              </div>
+            </li>
+            <li class="hl-card" aria-label="6 of 6">
+              <p class="hl-cap">
+                Works on a phone. <span>The same workspace, in your pocket.</span>
+              </p>
+              <div class="hl-ui ui-mobile" aria-hidden="true">
+                <div class="mini-phone">
+                  <div class="ph-island"></div>
+                  <p class="m user">Ship the fix.</p>
+                  <p class="m tool mono"><i></i>git push</p>
+                  <p class="m agent">Pushed to a new branch.</p>
+                </div>
+                <div class="mini-phone b">
+                  <div class="ph-island"></div>
+                  <p class="m mono dim">maple-code.agentbox.io.vn</p>
+                  <pre class="mono">
+const rate = 0.5;
+return round(
+  hours * rate
+);</pre>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+        <div class="wrap hl-foot">
+          <div class="pager glass" role="group" aria-label="Carousel controls">
+            <div class="dots" id="hl-dots">
+              <button type="button" aria-label="Go to highlight 1"><i></i></button>
+              <button type="button" aria-label="Go to highlight 2"><i></i></button>
+              <button type="button" aria-label="Go to highlight 3"><i></i></button>
+              <button type="button" aria-label="Go to highlight 4"><i></i></button>
+              <button type="button" aria-label="Go to highlight 5"><i></i></button>
+              <button type="button" aria-label="Go to highlight 6"><i></i></button>
+            </div>
+            <button
+              class="pp"
+              id="hl-pp"
+              type="button"
+              aria-label="Pause autoplay"
+              aria-pressed="false"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path class="i-pause" d="M5 3.5v9M11 3.5v9" />
+                <path class="i-play" d="M5.5 3.5l7 4.5-7 4.5z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 9. PRICING (light) -->
+      <section class="light pricing" id="pricing" aria-labelledby="price-title">
+        <div class="wrap">
+          <p class="eyebrow mono center">[ PRICING ]</p>
+          <h2 id="price-title" class="display section-title center reveal">
+            Pay for what you run.
+          </h2>
+          <p class="lede center reveal sub">
+            Start free. Your workspace is metered on runtime, CPU and memory, and it sleeps when you
+            do.
+          </p>
+          <div class="reveal"><!--plans--></div>
+        </div>
+      </section>
+
+      <!-- 10. FAQ (light) -->
+      <section class="light faq" id="faq" aria-labelledby="faq-title">
+        <div class="wrap faq-grid">
+          <div>
+            <p class="eyebrow mono">[ FAQ ]</p>
+            <h2 id="faq-title" class="display section-title reveal">Questions,<br />answered.</h2>
+          </div>
+          <div class="faq-list">
+            <details class="reveal">
+              <summary>What runs inside my workspace?</summary>
+              <p>
+                A Linux machine (Ubuntu 26.04) with T3 Code, VS Code in the browser, Claude Code,
+                Codex and Oh My Pi, plus git, the GitHub CLI, Node 24, Python, uv and ripgrep. Your
+                files live in <span class="mono">/workspace</span>.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary>Where is it hosted?</summary>
+              <p>
+                On servers run by AgentBox, reached through Cloudflare. Every workspace gets its own
+                hostname under <span class="mono">agentbox.io.vn</span>, one per tool, so workspaces
+                never share a browser origin with each other or with the dashboard.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary>What happens when I stop working?</summary>
+              <p>
+                An idle workspace goes to sleep and stops using runtime. Open its address and it
+                wakes up again. Your files stay on disk the whole time.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary>How is it kept isolated?</summary>
+              <p>
+                Each workspace is a rootless Podman container under its own Linux user, with a
+                read-only system, every capability dropped, hard CPU, memory, process and disk
+                limits, and a firewall that blocks private networks, VPNs, cloud metadata and other
+                workspaces. The <a href="#security">security section</a> shows how.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary>How does billing work?</summary>
+              <p>
+                Plans include a monthly allowance. Beyond it, runtime, CPU and memory are metered
+                and drawn from your credit balance. The pricing above is read from the live plans.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary>How do I get access?</summary>
+              <p>
+                AgentBox is invite-only for now. Request access, and your workspace is created once
+                an administrator approves your account.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary>What about my data and privacy?</summary>
+              <p>
+                Your files stay in your workspace, readable only by its user, and you can revoke
+                signed-in sessions from your settings. This page sets no cookies and runs no
+                analytics.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <!-- 11. FINAL CTA -->
+      <section class="cta" id="cta" aria-labelledby="cta-title">
+        <div class="cta-photo" aria-hidden="true">
+          <!--pic:saigon|saigon-portrait||photo|100vw-->
+          <div class="cta-shade"></div>
+        </div>
+        <div class="wrap cta-inner">
+          <h2 id="cta-title" class="display scene-title center" data-split>
+            Your machine<br />is waiting.
+          </h2>
+          <div class="cta-row center">
+            <a class="btn btn-primary btn-lg" href="{{app}}">Request access</a>
+            <a class="btn btn-ghost btn-lg" href="{{app}}">Sign in</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 12. FOOTER -->
+    <footer class="footer">
+      <div class="wrap foot-grid">
+        <div class="foot-brand">
+          <a class="brand" href="#top"><!--art:brand/mark class="mark"--><span>AgentBox</span></a>
+          <p>Every agent deserves a machine of its own.</p>
+        </div>
+        <nav class="foot-links" aria-label="Footer">
+          <a href="{{app}}">Sign in</a>
+          <a href="{{app}}">Request access</a>
+          <a href="#security">Security</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <p class="credits">
+          Photos:
+          <a
+            href="https://unsplash.com/photos/a-night-view-of-a-city-with-lights-reflecting-in-the-water-tyMDpHN7BZk"
+            rel="noopener"
+            >Anh Phan</a
+          >,
+          <a
+            href="https://www.pexels.com/photo/vibrant-ho-chi-minh-city-skyline-at-night-37919516/"
+            rel="noopener"
+            >ON ON</a
+          >
+          (Pexels),
+          <a
+            href="https://unsplash.com/photos/green-aurora-borealis-in-starry-night-sky-Oz2ZQ2j8We8"
+            rel="noopener"
+            >Johny Goerend</a
+          >,
+          <a
+            href="https://unsplash.com/photos/purple-and-green-smoke-swirls-on-black-background-7A-JmJd6ceQ"
+            rel="noopener"
+            >Alexander X.</a
+          >
+          on Unsplash. Type: Be Vietnam Pro and JetBrains Mono. No cookies, no analytics.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

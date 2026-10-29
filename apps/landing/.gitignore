@@ -1,0 +1,7 @@
+node_modules
+dist
+public/img
+public/og.png
+public/favicon-*.png
+public/apple-touch-icon.png
+.tmp
