@@ -49,6 +49,8 @@ export const startWorkspaceRequestSchema = z.object({
     .object({
       T3CODE_GATEWAY_IDENTITY_SECRET: z.string().min(1),
       T3CODE_GATEWAY_IDENTITY_AUDIENCE: z.string().min(1),
+      T3CODE_INSTANCE_NAME: z.string().min(1).optional(),
+      T3CODE_VSCODE_WEB_URL: z.url().optional(),
     })
     .strict(),
 });
