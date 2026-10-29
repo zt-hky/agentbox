@@ -10,7 +10,7 @@ import {
   workspaceSessions,
   workspaces,
 } from "@agentbox/db/schema";
-import { createGateway, safeReturnPath } from "../src/gateway.ts";
+import { createGateway, isBackgroundRequest, safeReturnPath } from "../src/gateway.ts";
 import { esc } from "../src/html.ts";
 import { BASE_DOMAIN, createClock, makeCtx } from "./helpers/ctx.ts";
 import { createTestDb, resetDb, type TestDb } from "./helpers/db.ts";
@@ -189,6 +189,43 @@ describe("authorize: running workspace", () => {
     await get("/internal/authorize", { host: T3, cookie: s.cookie });
     expect((await read()).lastRequestAt!.getTime()).toBe(clock.now().getTime());
     expect((await read()).lastActivityAt!.getTime()).toBe(clock.now().getTime());
+  });
+});
+
+describe("authorize: background requests", () => {
+  it("proxies telemetry requests without recording activity", async () => {
+    const w = await seedWorld(t.db);
+    const s = await session(w, T3);
+    const read = async () =>
+      (await t.db.select().from(workspaces).where(eq(workspaces.id, w.workspaceId)))[0]!;
+    const before = await read();
+    const r = await get("/internal/authorize", {
+      host: T3,
+      cookie: s.cookie,
+      "x-forwarded-method": "POST",
+      "x-forwarded-uri": "/api/observability/v1/traces",
+    });
+    expect(r.status).toBe(200);
+    expect(r.headers["x-agentbox-upstream"]).toBeDefined();
+    const after = await read();
+    expect(after.lastRequestAt).toEqual(before.lastRequestAt);
+    expect(after.lastActivityAt).toEqual(before.lastActivityAt);
+    await get("/internal/authorize", {
+      host: T3,
+      cookie: s.cookie,
+      "x-forwarded-uri": "/api/orchestration/x",
+    });
+    expect((await read()).lastRequestAt!.getTime()).toBe(clock.now().getTime());
+  });
+});
+
+describe("isBackgroundRequest", () => {
+  it("matches observability paths only", () => {
+    expect(isBackgroundRequest("/api/observability/v1/traces")).toBe(true);
+    expect(isBackgroundRequest("/api/observability/v1/traces?x=1")).toBe(true);
+    expect(isBackgroundRequest("/api/observability")).toBe(false);
+    expect(isBackgroundRequest("/api/other")).toBe(false);
+    expect(isBackgroundRequest(undefined)).toBe(false);
   });
 });
 

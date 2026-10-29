@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { AdminSleepButton } from "../admin-sleep-button";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import type { ActionResult } from "@/lib/action";
@@ -12,7 +13,6 @@ import {
   adminResetStartFailures,
   adminRestartWorkspace,
   adminStartWorkspace,
-  adminStopWorkspace,
 } from "./actions";
 
 function Row({
@@ -72,7 +72,6 @@ export function ManagePanel({
   };
 
   const canStart = status === "sleeping" || status === "error";
-  const canStop = status === "running" || status === "starting";
   const gone = status === "deleting" || status === "deleted";
 
   return (
@@ -87,20 +86,10 @@ export function ManagePanel({
         </Button>
       </Row>
       <Row
-        title="Stop"
-        description="Stop the container now. Unsaved work in running terminals and agents is lost."
+        title="Sleep"
+        description="Stop the container now. Open tabs disconnect and unsaved work in running terminals and agents is lost; files stay."
       >
-        <ConfirmDialog
-          trigger={
-            <Button size="sm" variant="outline" disabled={pending || !canStop}>
-              Stop
-            </Button>
-          }
-          title={`Stop ${slug}?`}
-          description="Running terminals and agents end immediately. Files on disk are kept."
-          confirmLabel="Stop workspace"
-          onConfirm={() => confirmed(() => adminStopWorkspace(slug))}
-        />
+        <AdminSleepButton slug={slug} status={status} ownerEmail={ownerEmail} disabled={pending} />
       </Row>
       <Row
         title="Restart"

@@ -6,10 +6,6 @@ import {
   hibernationSettingsSchema,
 } from "@agentbox/core/settings";
 
-export const accessRequestSchema = z.object({
-  message: z.string().trim().max(500, "Keep it under 500 characters"),
-});
-
 export const slugSchema = z
   .string()
   .trim()
@@ -17,6 +13,11 @@ export const slugSchema = z
     isValidWorkspaceSlug,
     "3-20 chars, lowercase letters and digits, starting with a letter, not reserved",
   );
+
+export const accessRequestSchema = z.object({
+  slug: slugSchema,
+  message: z.string().trim().max(500, "Keep it under 500 characters"),
+});
 
 export const grantSchema = z.object({
   userId: z.string().min(1).max(128),

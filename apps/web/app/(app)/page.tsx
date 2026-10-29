@@ -13,7 +13,7 @@ import { WorkspaceModule } from "@/components/workspace-module";
 import { Button } from "@/components/ui/button";
 import { baseDomain } from "@/lib/env";
 import { formatCredits, formatVnd } from "@/lib/money";
-import { billingDisplay, currentPrices } from "@/lib/queries";
+import { billingDisplay, currentPrices, effectiveIdleTimeoutMinutes } from "@/lib/queries";
 import { requireActiveUser } from "@/lib/session";
 import {
   loadBalance,
@@ -47,6 +47,9 @@ export default async function DashboardPage() {
     currentPrices(),
   ]);
   const { label, creditValueVnd } = display;
+  const idleTimeoutMinutes = await effectiveIdleTimeoutMinutes(
+    subscription?.plan.idleTimeoutMinutes ?? null,
+  );
   const [usage, live] = workspace
     ? await Promise.all([loadHourlyUsage(workspace.id), loadLiveReading(workspace)])
     : [[], null];
@@ -77,6 +80,7 @@ export default async function DashboardPage() {
             plan: subscription?.plan.name ?? null,
             lastActivityAt: workspace.lastActivityAt,
             awakeSince: workspace.awakeSince,
+            idleTimeoutMinutes,
           }}
           live={live}
           limits={limits}

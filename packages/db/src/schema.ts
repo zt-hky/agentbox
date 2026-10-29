@@ -111,18 +111,27 @@ const userRef = (name = "user_id") =>
     .notNull()
     .references(() => user.id);
 
-export const accessRequests = pgTable("access_requests", {
-  id: id(),
-  userId: userRef(),
-  message: text("message"),
-  status: text("status", { enum: ["pending", "approved", "rejected"] })
-    .notNull()
-    .default("pending"),
-  decidedBy: text("decided_by").references(() => user.id),
-  decidedAt: tstz("decided_at"),
-  reason: text("reason"),
-  createdAt: createdAt(),
-});
+export const accessRequests = pgTable(
+  "access_requests",
+  {
+    id: id(),
+    userId: userRef(),
+    message: text("message"),
+    requestedSlug: text("requested_slug"),
+    status: text("status", { enum: ["pending", "approved", "rejected"] })
+      .notNull()
+      .default("pending"),
+    decidedBy: text("decided_by").references(() => user.id),
+    decidedAt: tstz("decided_at"),
+    reason: text("reason"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("access_requests_pending_slug_uq")
+      .on(t.requestedSlug)
+      .where(sql`${t.status} = 'pending' and ${t.requestedSlug} is not null`),
+  ],
+);
 
 export const plans = pgTable("plans", {
   id: id(),

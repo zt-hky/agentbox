@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { WorkspaceModule } from "@/components/workspace-module";
+import { AdminSleepButton } from "./admin-sleep-button";
 import {
   RACK_SORTS,
   filterRackRows,
@@ -143,6 +144,9 @@ export function RackList({ rows, now }: { rows: RackRow[]; now: string }) {
               }}
               live={{ cpuCores: r.cpuCores, memBytes: r.memBytes, diskBytes: r.diskBytes }}
               limits={r.limits}
+              actions={
+                <AdminSleepButton slug={r.slug} status={r.status} ownerEmail={r.ownerEmail} />
+              }
             />
           ))}
         </div>

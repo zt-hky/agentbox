@@ -46,7 +46,7 @@ export default async function RequestsPage() {
       requestId: r?.id ?? null,
       message: r?.message ?? null,
       since: (r?.createdAt ?? u.createdAt).toISOString(),
-      suggestedSlug: slugFromEmail(u.email),
+      suggestedSlug: r?.requestedSlug ?? slugFromEmail(u.email),
     }))
     .sort((a, b) => (STATUS_ORDER[a.accessStatus] ?? 9) - (STATUS_ORDER[b.accessStatus] ?? 9));
   const pendingCount = rows.filter((r) => r.accessStatus === "pending").length;

@@ -15,6 +15,8 @@ export interface ActivityInput {
   config: IdleConfig;
 }
 
+export const DEFAULT_IDLE_TIMEOUT_MINUTES = 30;
+
 const MIN_MS = 60_000;
 const HOUR_MS = 3_600_000;
 

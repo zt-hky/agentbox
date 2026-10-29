@@ -7,6 +7,8 @@ import { Notice } from "@/components/notice";
 import { signOut } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 import { latestRequestFor } from "@/lib/queries";
+import { baseDomain } from "@/lib/env";
+import { slugFromEmail } from "@/lib/slug";
 import { requireUser } from "@/lib/session";
 import { ApprovalWatcher, RequestForm } from "./request-form";
 
@@ -56,6 +58,11 @@ export default async function RequestAccessPage() {
   const status = session.user.accessStatus;
   if (status === "active") redirect("/");
   const latest = await latestRequestFor(session.user.id);
+  const initialSlug =
+    latest?.status === "pending" && latest.requestedSlug
+      ? latest.requestedSlug
+      : slugFromEmail(session.user.email);
+  const domain = baseDomain();
   const firstName = session.user.name.split(" ")[0] || session.user.name;
 
   const headings: Record<string, { title: string; text: string }> = {
@@ -111,10 +118,19 @@ export default async function RequestAccessPage() {
       ) : null}
 
       {status === "pending" ? (
-        <RequestForm mode="note" initialMessage={latest?.message ?? ""} />
+        <RequestForm
+          mode="note"
+          initialMessage={latest?.message ?? ""}
+          initialSlug={initialSlug}
+          baseDomain={domain}
+        />
       ) : null}
-      {status === "none" ? <RequestForm mode="request" /> : null}
-      {status === "rejected" ? <RequestForm mode="again" /> : null}
+      {status === "none" ? (
+        <RequestForm mode="request" initialSlug={initialSlug} baseDomain={domain} />
+      ) : null}
+      {status === "rejected" ? (
+        <RequestForm mode="again" initialSlug={initialSlug} baseDomain={domain} />
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
         <span className="text-meta text-muted-foreground">Signed in as {session.user.email}</span>

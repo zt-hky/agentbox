@@ -13,6 +13,7 @@ import {
   workspaces,
 } from "@agentbox/db/schema";
 import { grantAccess, openAccessRequest } from "../lib/approve";
+import { checkSlugAvailable } from "../lib/slug-taken";
 import { UserError } from "../lib/errors";
 import { createTestDb, seedAdmin, seedRequester, seedUser, type TestDb } from "./helpers/db";
 
@@ -188,5 +189,58 @@ describe("openAccessRequest", () => {
     expect(
       await t.db.select().from(accessRequests).where(eq(accessRequests.userId, active)),
     ).toHaveLength(0);
+  });
+});
+
+describe("checkSlugAvailable", () => {
+  it("rejects slugs taken by a workspace, reserved, or requested by another pending user", async () => {
+    const owner = await seedRequester(t.db, "wsowner@example.com");
+    await grantAccess(t.db, input(owner.userId, "wsowner"));
+    const a = await seedRequester(t.db, "reqa@example.com");
+    const b = await seedRequester(t.db, "reqb@example.com");
+    await t.db
+      .update(accessRequests)
+      .set({ requestedSlug: "wanted" })
+      .where(eq(accessRequests.id, a.requestId));
+
+    expect(await checkSlugAvailable(t.db, "wsowner", b.userId)).toEqual({
+      ok: false,
+      error: '"wsowner" is already taken',
+    });
+    expect(await checkSlugAvailable(t.db, "admin", b.userId)).toMatchObject({ ok: false });
+    expect(await checkSlugAvailable(t.db, "wanted", b.userId)).toEqual({
+      ok: false,
+      error: '"wanted" is already taken',
+    });
+    expect(await checkSlugAvailable(t.db, "wanted", a.userId)).toEqual({ ok: true });
+    expect(await checkSlugAvailable(t.db, "freeone", b.userId)).toEqual({ ok: true });
+  });
+
+  it("grantAccess honours the user's own requested slug but not another user's", async () => {
+    const a = await seedRequester(t.db, "owna@example.com");
+    const b = await seedRequester(t.db, "ownb@example.com");
+    await t.db
+      .update(accessRequests)
+      .set({ requestedSlug: "mine" })
+      .where(eq(accessRequests.id, a.requestId));
+    await expect(grantAccess(t.db, input(b.userId, "mine"))).rejects.toThrow("already taken");
+    await expect(grantAccess(t.db, input(a.userId, "mine"))).resolves.toMatchObject({
+      userId: a.userId,
+    });
+  });
+
+  it("allows only one pending request per requested slug", async () => {
+    const a = await seedRequester(t.db, "uqa@example.com");
+    const b = await seedRequester(t.db, "uqb@example.com");
+    await t.db
+      .update(accessRequests)
+      .set({ requestedSlug: "dupe" })
+      .where(eq(accessRequests.id, a.requestId));
+    await expect(
+      t.db
+        .update(accessRequests)
+        .set({ requestedSlug: "dupe" })
+        .where(eq(accessRequests.id, b.requestId)),
+    ).rejects.toThrow();
   });
 });

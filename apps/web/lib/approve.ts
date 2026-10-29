@@ -12,7 +12,7 @@ import { writeAudit } from "./audit";
 import type { Db } from "./db-types";
 import { UserError } from "./errors";
 import { enqueueWorkspaceJob } from "./jobs";
-import { checkSlug } from "./slug";
+import { checkSlugAvailable } from "./slug-taken";
 import { addDays, addMonths } from "./time";
 
 export interface GrantInput {
@@ -36,7 +36,7 @@ export function trialEnd(plan: { trialDays: number | null }, now: Date): Date | 
   return plan.trialDays ? addDays(now, plan.trialDays) : null;
 }
 
-function isUniqueViolation(e: unknown): boolean {
+export function isUniqueViolation(e: unknown): boolean {
   const code = (e as { code?: string; cause?: { code?: string } } | null)?.code;
   const causeCode = (e as { cause?: { code?: string } } | null)?.cause?.code;
   return code === "23505" || causeCode === "23505";
@@ -66,14 +66,7 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
         throw new UserError("User already has a workspace; reactivate them instead");
       }
 
-      const slugCheck = await checkSlug(input.slug, async (s) => {
-        const r = await tx
-          .select({ id: workspaces.id })
-          .from(workspaces)
-          .where(eq(workspaces.slug, s))
-          .limit(1);
-        return r.length > 0;
-      });
+      const slugCheck = await checkSlugAvailable(tx, input.slug, target.id);
       if (!slugCheck.ok) throw new UserError(slugCheck.error);
 
       const plan = (await tx.select().from(plans).where(eq(plans.id, input.planId)).limit(1))[0];

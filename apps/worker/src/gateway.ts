@@ -88,6 +88,15 @@ function isNavigation(req: http.IncomingMessage): boolean {
   return method === "GET" && (header(req, "accept") ?? "").toLowerCase().includes("text/html");
 }
 
+const BACKGROUND_PATH_PREFIXES = ["/api/observability/"];
+
+/** Telemetry/heartbeat requests a browser tab sends with nobody present; they must not keep a workspace awake. */
+export function isBackgroundRequest(forwardedUri: string | undefined): boolean {
+  if (!forwardedUri) return false;
+  const path = forwardedUri.split(/[?#]/, 1)[0] ?? "";
+  return BACKGROUND_PATH_PREFIXES.some((p) => path.startsWith(p));
+}
+
 const SECURITY_HEADERS = {
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
@@ -278,7 +287,7 @@ export function createGateway(ctx: Ctx): http.RequestListener {
     if (ws.status === "running") {
       const nowMs = ctx.now().getTime();
       const prev = lastWrite.get(ws.id) ?? 0;
-      if (nowMs - prev >= THROTTLE_MS) {
+      if (!isBackgroundRequest(header(req, "x-forwarded-uri")) && nowMs - prev >= THROTTLE_MS) {
         lastWrite.set(ws.id, nowMs);
         const now = ctx.now();
         await db

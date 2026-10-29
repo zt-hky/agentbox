@@ -14,6 +14,8 @@ export interface WorkspaceModuleData {
   lastActivityAt?: Date | null;
   /** Set while awake; used for the uptime readout. */
   awakeSince?: Date | null;
+  /** Effective idle-sleep timeout; shown in the hero while the workspace is awake. */
+  idleTimeoutMinutes?: number | null;
 }
 
 /** Live readings; `null` per field when unknown. CPU in cores, memory and disk in bytes. */
@@ -141,6 +143,9 @@ export function WorkspaceModule({
             <p className="text-sm text-muted-foreground">
               {uptime ? `Awake for ${uptime}. ` : ""}
               Last activity {formatAgo(ws.lastActivityAt, now)}.
+              {running && ws.idleTimeoutMinutes
+                ? ` Sleeps after ${ws.idleTimeoutMinutes} min without activity.`
+                : ""}
             </p>
           </div>
           {actions ? <div className="mt-auto flex flex-wrap gap-2">{actions}</div> : null}

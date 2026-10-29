@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@agentbox/db/client";
-import { creditLedger, user, workspaces } from "@agentbox/db/schema";
+import { accessRequests, creditLedger, user, workspaces } from "@agentbox/db/schema";
 import { LedgerTable, type LedgerRow } from "@/components/ledger-table";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/empty-state";
@@ -11,6 +11,7 @@ import { Section } from "@/components/section";
 import { KeyValueList } from "@/components/key-value-list";
 import { Badge } from "@/components/ui/badge";
 import { WorkspaceModule } from "@/components/workspace-module";
+import { AdminSleepButton } from "@/app/admin/workspaces/admin-sleep-button";
 import { loadRack } from "@/lib/admin/workspaces-ops";
 import { baseDomain } from "@/lib/env";
 import { formatDateTime } from "@/lib/format";
@@ -35,6 +36,13 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const target = (await db.select().from(user).where(eq(user.id, id)).limit(1))[0];
   if (!target) notFound();
+  const pendingRequest = (
+    await db
+      .select({ requestedSlug: accessRequests.requestedSlug })
+      .from(accessRequests)
+      .where(and(eq(accessRequests.userId, id), eq(accessRequests.status, "pending")))
+      .limit(1)
+  )[0];
 
   const [sub, balance, display, ws, ledger, plans] = await Promise.all([
     loadSubscription(id),
@@ -94,6 +102,9 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
           }}
           live={{ cpuCores: rack.cpuCores, memBytes: rack.memBytes, diskBytes: rack.diskBytes }}
           limits={rack.limits}
+          actions={
+            <AdminSleepButton slug={rack.slug} status={rack.status} ownerEmail={rack.ownerEmail} />
+          }
         />
       ) : (
         <EmptyState
@@ -132,7 +143,7 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
                 target={{
                   userId: target.id,
                   email: target.email,
-                  suggestedSlug: slugFromEmail(target.email),
+                  suggestedSlug: pendingRequest?.requestedSlug ?? slugFromEmail(target.email),
                 }}
                 plans={plans.options}
                 defaultPlanId={plans.defaultPlanId}

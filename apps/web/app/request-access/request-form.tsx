@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,14 +10,16 @@ import { Button } from "@/components/ui/button";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { accessRequestSchema } from "@/lib/schemas";
-import { submitAccessRequest } from "./actions";
+import { checkRequestedSlug, submitAccessRequest } from "./actions";
 
 const MODES = {
   request: { label: "What will you use AgentBox for? (optional)", submit: "Request access" },
@@ -25,20 +27,55 @@ const MODES = {
   note: { label: "Note for the admin (optional)", submit: "Save note" },
 } as const;
 
+const SLUG_DEBOUNCE_MS = 400;
+
+type SlugAvailability = { state: "checking" } | { state: "ok" } | { state: "taken"; error: string };
+
+function useSlugAvailability(slug: string): SlugAvailability {
+  const [result, setResult] = useState<{ slug: string; availability: SlugAvailability } | null>(
+    null,
+  );
+  useEffect(() => {
+    const value = slug.trim();
+    let cancelled = false;
+    const id = setTimeout(async () => {
+      const res = await checkRequestedSlug(value);
+      if (cancelled) return;
+      if (!res.ok) setResult({ slug: value, availability: { state: "taken", error: res.error } });
+      else
+        setResult({
+          slug: value,
+          availability: res.data.ok ? { state: "ok" } : { state: "taken", error: res.data.error },
+        });
+    }, SLUG_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, [slug]);
+  return result && result.slug === slug.trim() ? result.availability : { state: "checking" };
+}
+
 export function RequestForm({
   mode,
   initialMessage = "",
+  initialSlug,
+  baseDomain,
 }: {
   mode: keyof typeof MODES;
   initialMessage?: string;
+  initialSlug: string;
+  baseDomain: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const form = useForm({
     resolver: zodResolver(accessRequestSchema),
-    defaultValues: { message: initialMessage },
+    defaultValues: { slug: initialSlug, message: initialMessage },
   });
   const copy = MODES[mode];
+  const slug = form.watch("slug");
+  const slugAvailability = useSlugAvailability(slug);
 
   return (
     <Form {...form}>
@@ -58,6 +95,33 @@ export function RequestForm({
       >
         <FormField
           control={form.control}
+          name="slug"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Workspace name</FormLabel>
+              <FormControl>
+                <Input autoComplete="off" spellCheck={false} {...field} />
+              </FormControl>
+              <FormDescription>
+                Becomes your workspace ID and URL: {slug.trim() || "<name>"}-t3.{baseDomain}. It
+                cannot be changed later.
+              </FormDescription>
+              {slugAvailability.state === "ok" ? (
+                <p className="text-meta text-muted-foreground" role="status">
+                  Available.
+                </p>
+              ) : null}
+              {slugAvailability.state === "taken" ? (
+                <p className="text-meta text-destructive" role="status">
+                  {slugAvailability.error}
+                </p>
+              ) : null}
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
           name="message"
           render={({ field }) => (
             <FormItem>
@@ -72,7 +136,11 @@ export function RequestForm({
         <Button
           type="submit"
           variant={mode === "note" ? "outline" : "default"}
-          disabled={pending || (mode === "note" && !form.formState.isDirty)}
+          disabled={
+            pending ||
+            slugAvailability.state === "taken" ||
+            (mode === "note" && !form.formState.isDirty)
+          }
         >
           {copy.submit}
         </Button>

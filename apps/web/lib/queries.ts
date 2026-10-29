@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db, readSetting } from "@agentbox/db/client";
 import { accessRequests, plans, prices } from "@agentbox/db/schema";
 import { FREE_PLAN_ID } from "@agentbox/core/billing";
+import { DEFAULT_IDLE_TIMEOUT_MINUTES } from "@agentbox/core/idle";
 import { formatCredits } from "./money";
 
 export async function latestRequestFor(userId: string) {
@@ -12,6 +13,13 @@ export async function latestRequestFor(userId: string) {
     .orderBy(desc(accessRequests.createdAt))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/** Same resolution as worker metering: plan override, then the global setting, then the default. */
+export async function effectiveIdleTimeoutMinutes(planOverride: number | null): Promise<number> {
+  if (planOverride !== null) return planOverride;
+  const s = await readSetting(db, "hibernation");
+  return s?.idleTimeoutMinutes ?? DEFAULT_IDLE_TIMEOUT_MINUTES;
 }
 
 export async function creditLabel(): Promise<string> {

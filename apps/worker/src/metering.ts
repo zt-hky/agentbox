@@ -2,6 +2,7 @@ import { desc, eq, gte, lte, sql } from "drizzle-orm";
 import {
   BILLING_TIME_ZONE,
   computeCharge,
+  DEFAULT_IDLE_TIMEOUT_MINUTES,
   evaluateActivity,
   localDateString,
   planGate,
@@ -31,7 +32,7 @@ export const MAX_ELAPSED_SEC = 120;
 const GIB = 2 ** 30;
 
 export const DEFAULT_HIBERNATION: IdleConfig = {
-  idleTimeoutMinutes: 30,
+  idleTimeoutMinutes: DEFAULT_IDLE_TIMEOUT_MINUTES,
   idleCpuPercent: 5,
   idleNetBytesPerMin: 32768,
   maxAwakeHours: 24,

@@ -1,0 +1,2 @@
+ALTER TABLE "access_requests" ADD COLUMN "requested_slug" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "access_requests_pending_slug_uq" ON "access_requests" USING btree ("requested_slug") WHERE "access_requests"."status" = 'pending' and "access_requests"."requested_slug" is not null;
