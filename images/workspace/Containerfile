@@ -184,11 +184,33 @@ SH
 
 COPY skel/ /opt/agentbox/skel/
 COPY t3-settings.json /opt/agentbox/t3-settings.json
+COPY t3-home/ /opt/agentbox/t3-home/
 COPY bin/workspace-init /opt/agentbox/bin/workspace-init
 RUN bash -euo pipefail <<'SH'
 chmod 0755 /opt/agentbox/bin/workspace-init
 find /opt/agentbox/skel -type d -exec chmod 0755 {} +
 find /opt/agentbox/skel -type f -exec chmod 0644 {} +
+SH
+
+# Oh My Pi is not in the official ACP Registry: T3 finds it through an overlay entry, and it only
+# inspects providers from a cached registry index, so a fresh home needs both to show omp as ready.
+# workspace-init installs them into $HOME/.t3 on every start.
+RUN bash -euo pipefail <<'SH'
+omp_version="$(omp --version | sed -E 's#^omp/##')"
+jq -n --arg v "${omp_version}" '{
+  id: "omp", name: "Oh My Pi", version: $v,
+  description: "Coding agent with built-in ACP: subagents, plan mode, LSP, DAP, and editor-bridged tools",
+  repository: "https://github.com/can1357/oh-my-pi", website: "https://omp.sh/docs/acp",
+  authors: ["Stencil Labs, Inc.", "Can Boluk"], license: "MIT",
+  license_url: "https://github.com/can1357/oh-my-pi/blob/main/LICENSE",
+  distribution: { npx: { package: ("@oh-my-pi/pi-coding-agent@" + $v), args: ["acp"] } }
+}' > /opt/agentbox/t3-home/acp-registry-overlay/omp/agent.json
+mkdir -p /opt/agentbox/t3-home/caches/acp-registry
+curl -fsSL https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json \
+  -o /opt/agentbox/t3-home/caches/acp-registry/registry.json
+jq -e '.agents | length > 0' /opt/agentbox/t3-home/caches/acp-registry/registry.json >/dev/null
+find /opt/agentbox/t3-home -type d -exec chmod 0755 {} +
+find /opt/agentbox/t3-home -type f -exec chmod 0644 {} +
 SH
 
 # Resolved tool versions, recorded for the admin image list.
