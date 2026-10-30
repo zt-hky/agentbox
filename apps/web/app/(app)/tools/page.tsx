@@ -10,6 +10,7 @@ import { requireActiveUser } from "@/lib/session";
 import { loadToolsView } from "@/lib/toolchain/view";
 import { HeaderActions } from "./header-actions";
 import { RunPanel } from "./run-panel";
+import { RegistryAdd } from "./registry-add";
 import { ToolsTable } from "./tools-table";
 
 export const metadata: Metadata = { title: "Tools" };
@@ -35,6 +36,7 @@ export default async function ToolsPage() {
   const runtimes = tools.filter((t) => t.kind === "runtime");
   const managers = tools.filter((t) => t.kind === "package-manager");
   const agents = tools.filter((t) => t.kind === "agent");
+  const other = tools.filter((t) => t.kind === "registry");
   const upgradable = tools.filter((t) => t.canUpgrade).length;
   const failed = tools.some((t) => t.state === "failed" && t.desired);
   const inProgress = run?.open ? run : null;
@@ -89,6 +91,19 @@ export default async function ToolsPage() {
       </Section>
       <Section title="Agent CLIs" bodyClassName="p-0">
         <ToolsTable tools={agents} asleep={asleep} empty="No agent CLIs are available." />
+      </Section>
+      <Section
+        title="Other tools"
+        description="Anything from the mise registry. Each installs the latest release or the version you type; there is no update check, so Reinstall fetches the newest again."
+        bodyClassName="p-0"
+      >
+        <RegistryAdd added={other.map((t) => t.toolId)} />
+        <ToolsTable
+          registry
+          tools={other}
+          asleep={asleep}
+          empty="Nothing added yet. Search the registry above."
+        />
       </Section>
       <p className="max-w-prose text-sm text-muted-foreground">
         Installed tools are linked into <Mono>~/.agentbox/bin</Mono>, which is first on{" "}

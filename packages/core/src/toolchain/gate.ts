@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BAKED_TOOL_IDS, toolIdSchema } from "./catalog.ts";
+import { BAKED_TOOL_IDS, curatedToolIdSchema } from "./catalog.ts";
 import type { ToolState } from "./plan.ts";
 
 /** Parsed `/opt/agentbox/versions.json` of a workspace image; stored in `images.manifest`. */
@@ -11,7 +11,7 @@ export const imageManifestSchema = z.object({
   /** The image bakes no runtimes or agent CLIs: workspaces must carry their own toolchain. */
   slim: z.boolean(),
   /** Catalog tools the image ships itself. */
-  baked: z.array(toolIdSchema),
+  baked: z.array(curatedToolIdSchema),
 });
 export type ImageManifest = z.infer<typeof imageManifestSchema>;
 

@@ -17,8 +17,11 @@
    channels and recent lines, the default channel marked). 1b: the package managers of the picked
    languages (pnpm, Yarn for Node; uv, Poetry for Python; Maven, Gradle for Java), each with a version
    select; npm, pip, Cargo, Go modules and Bun's built-in manager are listed as included. Removing a
-   language drops its package managers. 2. Agent CLIs. Stored in `user.onboarding_selection`
-   (`{tools, agents, versions?}`, `tools` holds languages and package managers, `versions` maps tool id
+   language drops its package managers. Under the languages, "Search more tools from the mise registry"
+   adds any other tool from the registry (see `docs/toolchain.md`): each picked tool is a card with a
+   version control (Latest, or "Specific version" with a typed version) and a remove button; 1b
+   ignores them. 2. Agent CLIs. Stored in `user.onboarding_selection`
+   (`{tools, agents, versions?}`, `tools` holds languages, package managers and registry tools (`mise:<name>`), `versions` maps tool id
    to `{channel, pinnedVersion}`) until a workspace exists. Defaults come from the admin toolchain
    defaults, or from the workspace's current tools for a user who already has one. Creating the
    workspace writes the chosen channel and version into the new `workspace_tools` rows.

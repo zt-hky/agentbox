@@ -52,6 +52,45 @@ tried in order (no registry shorthands), bins, version command, version source, 
 - Reconcile never upgrades by itself. Installing missing tools, applying a pin change and removing a
   tool switched off are automatic; moving a `latest`/`lts` tool to a newer release needs an Upgrade.
 
+## mise registry tools (any tool or language beyond the catalog)
+
+Users can add any tool from the mise registry, in onboarding step 1a ("Search more tools from the
+mise registry") and on `/tools` ("Other tools" > search). They go through the same plan, apply,
+remove and reinstall path as catalog tools.
+
+- **Snapshot.** `packages/core/src/toolchain/mise-registry.json` is generated, committed, and lists
+  `{ name, backends, aliases?, description? }` for the mise version the image pins
+  (`images/workspace/Containerfile`, `MISE_VERSION`). Curated catalog tools are left out (by id,
+  alias or shared backend), and so are backends the agent's `backendSpecSchema` cannot pass through
+  (asdf git URLs). It is not fetched at runtime and is never edited by hand.
+- **Regenerating when the image's mise is bumped.** Bump `MISE_VERSION`, then run
+  `node packages/core/scripts/gen-mise-registry.ts` (Node 22.18+; it reads the version from the
+  Containerfile, or take it as the first argument). The script downloads that release's linux-x64
+  tarball into a temp dir, runs `mise registry --json --hide-aliased` and rewrites the JSON. Commit
+  the diff: a name that vanished from the registry makes `mise:<name>` ids that users already saved
+  invalid (they are dropped from selections and ignored by planning), so read the diff for removals.
+- **Ids.** `mise:<name>` (`^mise:[a-z0-9][a-z0-9._-]{0,63}$`, and the name must be in the snapshot);
+  `toolIdSchema` accepts curated ids and these, so action inputs, plan steps and agent steps all
+  validate them. `workspace_tools.tool_id` is plain text: no migration. Admin defaults and the
+  disabled list stay curated-only (`curatedToolIdSchema`). At most `REGISTRY_TOOL_LIMIT` (16) per user.
+- **Install.** Backend is the snapshot's first backend (no fallback). Channels are `latest` and `pin`;
+  a pin is user-typed (`^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`, a prefix such as `3.12` is allowed).
+  There is no version source: no update check and no "update available". Reconcile never reinstalls
+  by itself; Upgrade (planner) and Reinstall (UI) reinstall `latest`, a pin is left alone. The plan
+  step carries `to: "latest"` or the pin, and the agent resolves it with `mise latest <spec>[@pin]`
+  and records that exact version; no previous version is kept (no rollback).
+- **Bins are discovered.** Registry steps have `registry: true` and no `bins`. `apply.sh` links every
+  executable of the install's `bin/` (or of the install root when it has no `bin/`) into the PATH
+  farm and stores the names in `toolchain.json`; remove deletes exactly those links. A name already
+  linked by another tool fails the step (`<name> is already linked by <tool>`) and nothing is
+  swapped. The smoke test is "at least one executable was linked": no `--version` call. The size
+  hint is unknown (`sizeHintMb: null`); the measured size is recorded after install.
+- **Search.** Server action `searchMiseTools(query)` (`apps/web/app/registry-actions.ts`,
+  `requireActiveUser`): top 20 `{ id, name, backend, description }`, name/alias prefix matches first,
+  then substring matches; an empty query returns nothing.
+- Tested by `apps/agent/test/apply-registry.test.ts` (real `apply.sh` against a fake `mise` shim in a
+  temporary HOME), plus the core, web and worker toolchain tests.
+
 ## Run flow
 
 1. A UI action (`requestReconcile` in `packages/db/src/toolchain.ts`) records the desired change,
@@ -108,7 +147,8 @@ farm still precedes the image PATH.
 
 ## Not covered
 
-- `fx` has no verified install source and is not in the catalog.
+- `fx` has no verified install source and is not in the curated catalog (it may exist in the mise registry).
+- Registry tools are only linked by what `bin/` contains: tools that need `mise exec`, shims or env setup beyond the executables are not supported, and registry installs are not verified against a real container (only the fake-shim test and the pinned mise's registry listing).
 - No maintenance container for sleeping workspaces and no automatic upgrades.
 - GitHub token fallback for rate-limited `github:` installs is not implemented: backends fall back to
   the npm package instead.

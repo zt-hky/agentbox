@@ -1,4 +1,5 @@
 export * from "./catalog.ts";
+export * from "./registry.ts";
 export * from "./versions.ts";
 export * from "./sources.ts";
 export * from "./api.ts";

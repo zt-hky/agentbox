@@ -224,7 +224,12 @@ describe("tool actions", () => {
       }),
       /Maven needs Java/,
     );
-    expect(await t.db.select().from(workspaceTools).where(and(eq(workspaceTools.workspaceId, ws.id), eq(workspaceTools.toolId, "maven")))).toHaveLength(0);
+    expect(
+      await t.db
+        .select()
+        .from(workspaceTools)
+        .where(and(eq(workspaceTools.workspaceId, ws.id), eq(workspaceTools.toolId, "maven"))),
+    ).toHaveLength(0);
 
     // Node is a default (wanted) language, so its package managers install.
     const pnpm = (await loadToolsView(t.db, userId))!.tools.find((x) => x.toolId === "pnpm")!;
@@ -286,6 +291,88 @@ describe("tool actions", () => {
     // The failed bun can be upgraded, so the retry requests it.
     expect((await rowOf(ws.id, "bun")).requestedAction).toBe("upgrade");
     expect(await audits(ws.id, "toolchain.retry")).toHaveLength(1);
+  });
+});
+
+describe("registry tools", () => {
+  const RG = "mise:ripgrep" as const;
+
+  it("validates typed pins without a published list", () => {
+    const entry = requireEntry(RG);
+    expect(validateSelection(entry, { channel: "latest" }, undefined)).toEqual({
+      channel: "latest",
+      pinnedVersion: null,
+    });
+    expect(
+      validateSelection(entry, { channel: "pin", pinnedVersion: "14.1.0" }, undefined),
+    ).toEqual({
+      channel: "pin",
+      pinnedVersion: "14.1.0",
+    });
+    for (const bad of [null, "", "-1", "1;id", "a b"]) {
+      expect(() =>
+        validateSelection(entry, { channel: "pin", pinnedVersion: bad }, undefined),
+      ).toThrow(UserError);
+    }
+    expect(() => validateSelection(entry, { channel: "lts" }, undefined)).toThrow(/lts channel/);
+  });
+
+  it("adds, changes, reinstalls and removes a registry tool; hides it again once removed", async () => {
+    const { userId, ws } = await seedTenant(t.db);
+    expect((await loadToolsView(t.db, userId))!.tools.some((x) => x.kind === "registry")).toBe(
+      false,
+    );
+
+    await expect(
+      installTool(t.db, actorOf(userId), { toolId: "mise:no-such-tool-xyz" as never }),
+    ).rejects.toThrow(/unknown tool/);
+    await installTool(t.db, actorOf(userId), {
+      toolId: RG,
+      selection: { channel: "pin", pinnedVersion: "14.1" },
+    });
+    expect(await rowOf(ws.id, RG)).toMatchObject({
+      desired: true,
+      channel: "pin",
+      pinnedVersion: "14.1",
+      source: "user",
+    });
+    expect(await reconcileJobs(ws.id)).toHaveLength(1);
+
+    await markInstalled(t.db, ws.id, RG, {
+      installedVersion: "14.1.1",
+      backend: "aqua:BurntSushi/ripgrep",
+    });
+    const row = (await loadToolsView(t.db, userId))!.tools.find((x) => x.toolId === RG)!;
+    expect(row).toMatchObject({
+      kind: "registry",
+      managed: true,
+      sizeHintMb: null,
+      updateAvailable: null,
+      canUpgrade: false,
+      canRollback: false,
+      canReinstall: true,
+      canRemove: true,
+    });
+    await rejects(installTool(t.db, actorOf(userId), { toolId: RG }), /already installed/);
+
+    await selectToolVersion(t.db, actorOf(userId), {
+      toolId: RG,
+      selection: { channel: "latest" },
+    });
+    expect(await rowOf(ws.id, RG)).toMatchObject({ channel: "latest", pinnedVersion: null });
+    await rejects(
+      selectToolVersion(t.db, actorOf(userId), {
+        toolId: RG,
+        selection: { channel: "pin", pinnedVersion: "1;id" },
+      }),
+      /valid version/,
+    );
+    await reinstallTool(t.db, actorOf(userId), { toolId: RG });
+    expect((await rowOf(ws.id, RG)).requestedAction).toBe("reinstall");
+    await rejects(upgradeTool(t.db, actorOf(userId), { toolId: RG }), /up to date/);
+
+    await removeTool(t.db, actorOf(userId), { toolId: RG });
+    expect((await rowOf(ws.id, RG)).desired).toBe(false);
   });
 });
 

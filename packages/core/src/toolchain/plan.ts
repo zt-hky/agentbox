@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AgentStep } from "./api.ts";
 import {
   CATALOG,
+  catalogEntry,
   requireEntry,
   toolIdSchema,
   type CatalogEntry,
@@ -106,7 +107,12 @@ export function buildPlan(input: PlanInput): Plan {
   const skipped: Plan["skipped"] = [];
   const errors: Plan["errors"] = [];
 
-  for (const entry of CATALOG) {
+  // Registry tools are not in CATALOG: every desired `mise:<name>` row is planned after the curated ones.
+  const registry = input.desired.flatMap((d) => {
+    const e = d.toolId.startsWith("mise:") ? catalogEntry(d.toolId) : undefined;
+    return e?.kind === "registry" ? [e] : [];
+  });
+  for (const entry of [...CATALOG, ...registry]) {
     const id = entry.id;
     const want = desired.get(id);
     const have = observed.get(id);
@@ -164,12 +170,21 @@ export function buildPlan(input: PlanInput): Plan {
       want.channel === "pin" &&
       !!want.pinnedVersion &&
       !satisfiesPin(entry, want.pinnedVersion, installed);
+    // Registry `latest` has no version list to compare: upgrading always reinstalls the newest.
+    const followsLatest = entry.kind === "registry" && want.channel === "latest";
     if (wants(input.reinstall, id)) {
       steps.push({ tool: id, action: "reinstall", from: installed, to: target.version });
-    } else if (pinDrift || (wants(input.upgrade, id) && installed !== target.version)) {
+    } else if (
+      pinDrift ||
+      (wants(input.upgrade, id) &&
+        (followsLatest || (entry.kind !== "registry" && installed !== target.version)))
+    ) {
       steps.push({
         tool: id,
-        action: compareVersions(target.version, installed) < 0 ? "downgrade" : "upgrade",
+        action:
+          followsLatest || compareVersions(target.version, installed) >= 0
+            ? "upgrade"
+            : "downgrade",
         from: installed,
         to: target.version,
       });
@@ -178,8 +193,8 @@ export function buildPlan(input: PlanInput): Plan {
 
   // Tools no longer in the catalog's desired set but still managed are handled by the caller
   // (removal rows keep `desired=false`), so nothing else is planned here.
-  const kindRank = { runtime: 0, "package-manager": 500, agent: 1000 } as const;
-  const rank = new Map(CATALOG.map((e, i) => [e.id, kindRank[e.kind] + i]));
+  const kindRank = { runtime: 0, "package-manager": 500, agent: 1000, registry: 2000 } as const;
+  const rank = new Map([...CATALOG, ...registry].map((e, i) => [e.id, kindRank[e.kind] + i]));
   steps.sort((a, b) => (rank.get(a.tool) ?? 0) - (rank.get(b.tool) ?? 0));
   return { steps, skipped, errors };
 }
@@ -191,7 +206,7 @@ export function updateAvailable(
   have: ObservedRow | undefined,
   info: LatestInfo | undefined,
 ): string | null {
-  if (!isManaged(have)) return null;
+  if (!isManaged(have) || entry.versionSource.kind === "none") return null;
   const target = resolveTarget(entry, want.channel, want.pinnedVersion, info);
   if (!target.ok) return null;
   return compareVersions(target.version, have.installedVersion) > 0 ? target.version : null;
@@ -208,6 +223,7 @@ export function toAgentStep(plan: PlanStep, info: LatestInfo | undefined): Agent
       optional: b.optional ?? false,
     })),
     versionArgs: entry.versionArgs,
+    ...(entry.kind === "registry" ? { registry: true } : {}),
   };
   switch (plan.action) {
     case "remove":

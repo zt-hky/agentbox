@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isRegistryToolId, registryCatalogEntry, type RegistryToolId } from "./registry.ts";
 
 /**
  * AgentBox-owned catalog of per-workspace tools. Code, not data: the database only stores desired
@@ -32,14 +33,26 @@ export const TOOL_IDS = [
   "muse",
   "copilot",
 ] as const;
-export type ToolId = (typeof TOOL_IDS)[number];
-export const toolIdSchema = z.enum(TOOL_IDS);
+/** Curated tools: the catalog below. Registry tools (`mise:<name>`) join them in `ToolId`. */
+export type CuratedToolId = (typeof TOOL_IDS)[number];
+export type ToolId = CuratedToolId | RegistryToolId;
+export const curatedToolIdSchema = z.enum(TOOL_IDS);
+
+/** A curated id, or `mise:<name>` for a name in the mise registry snapshot. */
+export const toolIdSchema = z.custom<ToolId>(
+  (v) =>
+    typeof v === "string" && ((TOOL_IDS as readonly string[]).includes(v) || isRegistryToolId(v)),
+  "unknown tool",
+);
 
 export const CHANNELS = ["latest", "lts", "pin"] as const;
 export type Channel = (typeof CHANNELS)[number];
 
-/** `package-manager` entries install on top of a language runtime (`requires`). */
-export type ToolKind = "runtime" | "package-manager" | "agent";
+/**
+ * `package-manager` entries install on top of a language runtime (`requires`); `registry` entries
+ * are any other mise registry tool (no bins known up front, no version source).
+ */
+export type ToolKind = "runtime" | "package-manager" | "agent" | "registry";
 
 /** Where the central worker learns the available versions of a tool. */
 export type VersionSource =
@@ -51,7 +64,9 @@ export type VersionSource =
   | { kind: "go-dl" }
   | { kind: "adoptium" }
   | { kind: "github-releases"; repo: string }
-  | { kind: "muse-channel" };
+  | { kind: "muse-channel" }
+  /** Registry tools: no update check; `latest` resolves on the workspace at install time. */
+  | { kind: "none" };
 
 export interface BinDef {
   /** Name linked into the PATH farm (`~/.agentbox/bin/<name>`). */
@@ -85,13 +100,16 @@ export interface CatalogEntry {
   t3Driver: string | null;
   /** Package managers only: the language runtime this manager belongs to. */
   requires?: ToolId;
-  /** Rough installed size, shown before the user confirms. Measured values replace it after install. */
-  sizeHintMb: number;
+  /** Rough installed size, shown before the user confirms; null when unknown (registry tools). */
+  sizeHintMb: number | null;
 }
 
 const ver = ["--version"];
 
-export const CATALOG: readonly CatalogEntry[] = [
+/** A curated entry: its id is one of `TOOL_IDS`. */
+export type CuratedEntry = CatalogEntry & { id: CuratedToolId };
+
+export const CATALOG: readonly CuratedEntry[] = [
   {
     id: "node",
     kind: "runtime",
@@ -395,10 +413,10 @@ export const CATALOG: readonly CatalogEntry[] = [
   },
 ];
 
-const BY_ID = new Map<ToolId, CatalogEntry>(CATALOG.map((e) => [e.id, e]));
+const BY_ID = new Map<string, CatalogEntry>(CATALOG.map((e) => [e.id, e]));
 
 export function catalogEntry(id: string): CatalogEntry | undefined {
-  return BY_ID.get(id as ToolId);
+  return BY_ID.get(id) ?? registryCatalogEntry(id);
 }
 
 export function requireEntry(id: string): CatalogEntry {
@@ -427,11 +445,11 @@ export const BUNDLED_PACKAGE_MANAGERS: Readonly<
 };
 
 /** Image-baked tools the managed copies replace; used to detect `external` installs. */
-export const BAKED_TOOL_IDS: readonly ToolId[] = ["node", "claude", "codex", "omp"];
+export const BAKED_TOOL_IDS: readonly CuratedToolId[] = ["node", "claude", "codex", "omp"];
 
 /** Defaults installed for every workspace until an admin changes `toolchain.defaults`. */
 export interface ToolDefault {
-  tool: ToolId;
+  tool: CuratedToolId;
   channel: Channel;
   pinnedVersion?: string | null;
 }
@@ -450,10 +468,10 @@ export const VERSION_RE = /^[0-9A-Za-z._+-]{1,64}$/;
 export const versionSchema = z.string().regex(VERSION_RE);
 
 export const toolDefaultSchema = z.object({
-  tool: toolIdSchema,
+  tool: curatedToolIdSchema,
   channel: z.enum(CHANNELS),
   pinnedVersion: versionSchema.nullish(),
 });
 
 export const toolchainDefaultsSchema = z.array(toolDefaultSchema).max(CATALOG.length);
-export const toolchainDisabledSchema = z.array(toolIdSchema);
+export const toolchainDisabledSchema = z.array(curatedToolIdSchema);

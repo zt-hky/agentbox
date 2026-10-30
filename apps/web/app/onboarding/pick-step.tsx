@@ -38,7 +38,7 @@ export function PickStep({
     onSelectedChange(on ? [...selected, id] : selected.filter((x) => x !== id));
   const totalMb = options
     .filter((o) => selected.includes(o.toolId))
-    .reduce((sum, o) => sum + o.sizeHintMb, 0);
+    .reduce((sum, o) => sum + (o.sizeHintMb ?? 0), 0);
 
   return (
     <section className="space-y-5">
@@ -65,7 +65,7 @@ export function PickStep({
                   <span className="flex items-baseline justify-between gap-2">
                     <span className="text-sm font-medium">{o.label}</span>
                     <span className="font-mono text-xs text-muted-foreground">
-                      ~{o.sizeHintMb} MB
+                      {o.sizeHintMb === null ? "" : `~${o.sizeHintMb} MB`}
                     </span>
                   </span>
                   <span className="mt-0.5 block text-meta text-muted-foreground">

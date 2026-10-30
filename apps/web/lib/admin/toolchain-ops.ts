@@ -9,6 +9,7 @@ import {
   type LatestInfo,
   type ToolDefault,
   type ToolId,
+  type CuratedToolId,
   type ToolKind,
   type ToolState,
 } from "@agentbox/core/toolchain";
@@ -55,7 +56,7 @@ export interface FleetRow {
 }
 
 export interface CatalogAdminRow {
-  toolId: ToolId;
+  toolId: CuratedToolId;
   label: string;
   kind: ToolKind;
   channels: Channel[];
@@ -69,7 +70,7 @@ export interface CatalogAdminRow {
 }
 
 export interface LatestStatusRow {
-  toolId: ToolId;
+  toolId: CuratedToolId;
   label: string;
   latest: string | null;
   lts: string | null;

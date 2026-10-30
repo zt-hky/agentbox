@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   CATALOG,
   BUNDLED_PACKAGE_MANAGERS,
+  REGISTRY,
+  catalogEntry,
+  registryTool,
+  searchRegistry,
+  toolIdSchema,
   agentStepSchema,
   abiIsOlder,
   buildPlan,
@@ -857,5 +862,135 @@ describe("toolchain setting", () => {
         defaults: [{ tool: "node", channel: "pin", pinnedVersion: "1; id" }],
       }),
     ).toThrow();
+  });
+});
+
+describe("mise registry", () => {
+  const registryId = (name: string) => `mise:${name}` as ToolId;
+
+  it("loads the snapshot without curated tools, with first-backend installs", () => {
+    expect(REGISTRY.length).toBeGreaterThan(500);
+    const names = new Set(REGISTRY.map((t) => t.name));
+    expect(names.size).toBe(REGISTRY.length);
+    for (const e of CATALOG) expect(names.has(e.id)).toBe(false);
+    const curatedBackends = new Set(CATALOG.flatMap((e) => e.backends.map((b) => b.spec)));
+    for (const t of REGISTRY) {
+      expect(t.backends.length).toBeGreaterThan(0);
+      for (const b of t.backends) expect(curatedBackends.has(b)).toBe(false);
+    }
+    const rg = REGISTRY.find((t) => t.name === "ripgrep");
+    expect(rg?.backends[0]).toMatch(/^aqua:/);
+    expect(catalogEntry("mise:ripgrep")).toMatchObject({
+      kind: "registry",
+      channels: ["latest", "pin"],
+      versionSource: { kind: "none" },
+      bins: [],
+      backends: [{ spec: rg?.backends[0] }],
+      sizeHintMb: null,
+    });
+  });
+
+  it("validates ids: curated, or mise:<name> that exists in the snapshot", () => {
+    expect(toolIdSchema.safeParse("node").success).toBe(true);
+    expect(toolIdSchema.safeParse("mise:ripgrep").success).toBe(true);
+    for (const bad of [
+      "mise:",
+      "mise:no-such-tool-xyz",
+      "mise:Ripgrep",
+      "mise:../x",
+      "mise:a b",
+      "ripgrep",
+      "emacs",
+      7,
+    ]) {
+      expect(toolIdSchema.safeParse(bad).success, String(bad)).toBe(false);
+    }
+    expect(registryTool("mise:ripgrep")?.name).toBe("ripgrep");
+    expect(registryTool("mise:node")).toBeUndefined();
+    expect(catalogEntry("mise:no-such-tool-xyz")).toBeUndefined();
+  });
+
+  it("searches name/alias prefix first, then substring, at most 20; empty matches nothing", () => {
+    expect(searchRegistry("")).toEqual([]);
+    expect(searchRegistry("   ")).toEqual([]);
+    const hits = searchRegistry("rip");
+    expect(hits.length).toBeLessThanOrEqual(20);
+    expect(hits[0]).toMatchObject({ name: "ripgrep", id: "mise:ripgrep" });
+    expect(hits[0]?.backend).toMatch(/:/);
+    // every prefix match (name or alias) precedes the pure substring matches
+    const isPrefix = (n: string) =>
+      n.startsWith("rip") ||
+      !!REGISTRY.find((t) => t.name === n)?.aliases?.some((a) => a.startsWith("rip"));
+    const flags = hits.map((h) => isPrefix(h.name));
+    expect(flags).toEqual([...flags].sort((a, b) => Number(b) - Number(a)));
+    expect(searchRegistry("RIPGREP")[0]?.name).toBe("ripgrep");
+    // an alias finds its tool: `op` is an alias of 1password
+    expect(searchRegistry("op").some((h) => h.name === "1password")).toBe(true);
+    expect(searchRegistry("e")).toHaveLength(20);
+    expect(searchRegistry("grep").map((h) => h.name)).toContain("ripgrep");
+  });
+
+  it("plans install, pin drift and upgrade (reinstalls latest) without published versions", () => {
+    const id = registryId("ripgrep");
+    const w = (channel: "latest" | "pin", pinnedVersion: string | null = null): DesiredRow => ({
+      toolId: id,
+      channel,
+      pinnedVersion,
+      desired: true,
+    });
+    const o = (installed: string): ObservedRow => ({
+      toolId: id,
+      state: "idle",
+      installedVersion: installed,
+      previousVersion: null,
+      backend: "aqua:BurntSushi/ripgrep",
+    });
+    const plan = (input: Partial<Parameters<typeof buildPlan>[0]> & { desired: DesiredRow[] }) =>
+      buildPlan({ observed: [], latest: {}, ...input }).steps;
+    expect(plan({ desired: [w("latest")] })).toEqual([
+      { tool: id, action: "install", from: null, to: "latest" },
+    ]);
+    expect(plan({ desired: [w("pin", "14.1")] })).toEqual([
+      { tool: id, action: "install", from: null, to: "14.1" },
+    ]);
+    // a pinned line is satisfied by any patch; a different pin is a change
+    expect(plan({ desired: [w("pin", "14.1")], observed: [o("14.1.1")] })).toEqual([]);
+    expect(plan({ desired: [w("pin", "13")], observed: [o("14.1.1")] })).toHaveLength(1);
+    // no automatic upgrade; an upgrade request reinstalls latest; pins are left alone
+    expect(plan({ desired: [w("latest")], observed: [o("14.1.1")] })).toEqual([]);
+    expect(plan({ desired: [w("latest")], observed: [o("14.1.1")], upgrade: [id] })).toEqual([
+      { tool: id, action: "upgrade", from: "14.1.1", to: "latest" },
+    ]);
+    expect(plan({ desired: [w("pin", "14.1")], observed: [o("14.1.1")], upgrade: [id] })).toEqual(
+      [],
+    );
+    // never shows an update: there is no version source
+    expect(updateAvailable(requireEntry(id), w("latest"), o("1.0.0"), undefined)).toBeNull();
+    // curated tools stay ahead of registry tools
+    expect(
+      plan({ desired: [w("latest"), want("claude")], latest: info }).map((s) => s.tool),
+    ).toEqual(["claude", id]);
+    // removal of a no-longer-desired registry tool
+    expect(
+      plan({ desired: [{ ...w("latest"), desired: false }], observed: [o("14.1.1")] }),
+    ).toEqual([{ tool: id, action: "remove", from: "14.1.1", to: null }]);
+  });
+
+  it("rejects a bad pinned version and builds a schema-valid registry step without bins", () => {
+    const id = registryId("ripgrep");
+    expect(resolveTarget(requireEntry(id), "pin", "1;id", undefined)).toMatchObject({ ok: false });
+    expect(resolveTarget(requireEntry(id), "pin", "-1", undefined)).toMatchObject({ ok: false });
+    expect(resolveTarget(requireEntry(id), "lts", null, undefined)).toEqual({
+      ok: true,
+      version: "latest",
+    });
+    const step = toAgentStep({ tool: id, action: "install", from: null, to: "latest" }, undefined);
+    const parsed = agentStepSchema.parse(step);
+    expect(parsed).toMatchObject({ tool: id, version: "latest", registry: true, bins: [] });
+    expect(parsed.backends).toHaveLength(1);
+    // curated steps still need bins
+    expect(agentStepSchema.safeParse({ ...step, tool: "node", registry: false }).success).toBe(
+      false,
+    );
   });
 });

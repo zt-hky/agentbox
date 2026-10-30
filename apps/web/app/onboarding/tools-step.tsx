@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import type { ToolId } from "@agentbox/core/toolchain";
+import { X } from "lucide-react";
+import { REGISTRY_TOOL_LIMIT, type ToolId } from "@agentbox/core/toolchain";
 import { Notice } from "@/components/notice";
+import { RegistrySearch } from "@/components/registry-search";
+import { RegistryVersion } from "@/components/registry-version";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,6 +19,7 @@ import {
 import type { ActionResult } from "@/lib/action";
 import type {
   OnboardingManagerOption,
+  OnboardingRegistryPick,
   OnboardingRuntimeOption,
   OnboardingVersionChoice,
 } from "@/lib/onboarding";
@@ -99,7 +103,9 @@ function ToolRow({
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline justify-between gap-2">
             <span className="text-sm font-medium">{tool.label}</span>
-            <span className="font-mono text-xs text-muted-foreground">~{tool.sizeHintMb} MB</span>
+            {tool.sizeHintMb === null ? null : (
+              <span className="font-mono text-xs text-muted-foreground">~{tool.sizeHintMb} MB</span>
+            )}
           </span>
           <span className="mt-0.5 block text-meta text-muted-foreground">{tool.description}</span>
         </span>
@@ -126,9 +132,11 @@ export function ToolsStep({
   tools,
   toolIds,
   managerIds,
+  registry,
   versions,
   onToolIdsChange,
   onManagerIdsChange,
+  onRegistryChange,
   onVersionsChange,
   save,
   onDone,
@@ -136,9 +144,11 @@ export function ToolsStep({
   tools: OnboardingRuntimeOption[];
   toolIds: ToolId[];
   managerIds: ToolId[];
+  registry: OnboardingRegistryPick[];
   versions: VersionValues;
   onToolIdsChange: (ids: ToolId[]) => void;
   onManagerIdsChange: (ids: ToolId[]) => void;
+  onRegistryChange: (picks: OnboardingRegistryPick[]) => void;
   onVersionsChange: (versions: VersionValues) => void;
   save: (payload: ToolSelectionPayload) => Promise<ActionResult<void>>;
   onDone: () => void;
@@ -165,6 +175,17 @@ export function ToolsStep({
   const toggleManager = (id: ToolId, on: boolean) =>
     onManagerIdsChange(on ? [...managerIds, id] : managerIds.filter((x) => x !== id));
 
+  // Registry tools are saved with the languages; a typed version must be filled in first.
+  const registryError = () => {
+    const empty = registry.find((r) => r.value.startsWith("pin:") && r.value.length <= 4);
+    return empty ? `Enter a version for ${empty.name}, or choose Latest.` : null;
+  };
+  const continueToManagers = () => {
+    const problem = registryError();
+    setError(problem);
+    if (!problem) setPart("managers");
+  };
+
   const submit = () =>
     start(async () => {
       setError(null);
@@ -173,8 +194,11 @@ export function ToolsStep({
       );
       const chosen = [...picked, ...keptManagers];
       const payload: ToolSelectionPayload = {
-        toolIds: chosen.map((t) => t.toolId),
-        versions: Object.fromEntries(chosen.map((t) => [t.toolId, parseChannelValue(valueOf(t))])),
+        toolIds: [...chosen.map((t) => t.toolId), ...registry.map((r) => r.toolId)],
+        versions: {
+          ...Object.fromEntries(chosen.map((t) => [t.toolId, parseChannelValue(valueOf(t))])),
+          ...Object.fromEntries(registry.map((r) => [r.toolId, parseChannelValue(r.value)])),
+        },
       };
       const res = await save(payload);
       if (res.ok) onDone();
@@ -184,7 +208,7 @@ export function ToolsStep({
   const totalMb = [
     ...picked,
     ...picked.flatMap((t) => t.managers.filter((m) => managerIds.includes(m.toolId))),
-  ].reduce((sum, t) => sum + t.sizeHintMb, 0);
+  ].reduce((sum, t) => sum + (t.sizeHintMb ?? 0), 0);
 
   if (part === "languages") {
     return (
@@ -211,13 +235,74 @@ export function ToolsStep({
             />
           ))}
         </ul>
+        {registry.length > 0 ? (
+          <ul className="grid gap-2" aria-label="Tools from the mise registry">
+            {registry.map((r, i) => (
+              <li
+                key={r.toolId}
+                className="chain-reveal flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border border-signal bg-card px-4 py-3"
+                style={{ "--i": i } as React.CSSProperties}
+              >
+                <span className="min-w-0 flex-1 basis-56">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium">{r.name}</span>
+                    <Badge variant="status" className="font-mono">
+                      {r.backend}
+                    </Badge>
+                  </span>
+                  <span className="mt-0.5 block text-meta text-muted-foreground">
+                    {r.description || "From the mise registry."}
+                  </span>
+                </span>
+                <RegistryVersion
+                  label={r.name}
+                  value={r.value}
+                  disabled={pending}
+                  onChange={(value) =>
+                    onRegistryChange(
+                      registry.map((x) => (x.toolId === r.toolId ? { ...x, value } : x)),
+                    )
+                  }
+                />
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={`Remove ${r.name}`}
+                  disabled={pending}
+                  onClick={() => onRegistryChange(registry.filter((x) => x.toolId !== r.toolId))}
+                >
+                  <X />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {registry.length < REGISTRY_TOOL_LIMIT ? (
+          <RegistrySearch
+            exclude={registry.map((r) => r.toolId)}
+            disabled={pending}
+            onPick={(hit) =>
+              onRegistryChange([
+                ...registry,
+                {
+                  toolId: hit.id,
+                  name: hit.name,
+                  description: hit.description,
+                  backend: hit.backend,
+                  value: "latest",
+                },
+              ])
+            }
+          />
+        ) : null}
         <p className="text-sm text-muted-foreground">
-          {picked.length === 0
+          {picked.length + registry.length === 0
             ? "No language is selected. You can add them later under Tools."
-            : `${picked.length} selected.`}
+            : `${picked.length + registry.length} selected.`}
         </p>
+        {error ? <Notice tone="error">{error}</Notice> : null}
         <div className="flex gap-2">
-          <Button onClick={() => setPart("managers")}>Continue</Button>
+          <Button onClick={continueToManagers}>Continue</Button>
         </div>
       </section>
     );

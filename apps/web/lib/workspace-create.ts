@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { encrypt, randomToken } from "@agentbox/core/tokens";
-import { CATALOG, type ToolDefault } from "@agentbox/core/toolchain";
+import { CATALOG, catalogEntry, type ToolDefault } from "@agentbox/core/toolchain";
 import { loadToolchainSettings, requestReconcile } from "@agentbox/db/toolchain";
 import {
   gitConnections,
@@ -51,7 +51,14 @@ export async function applySelectionRows(
     .from(workspaceTools)
     .where(eq(workspaceTools.workspaceId, workspaceId));
   const have = new Set(existing.map((r) => r.toolId));
-  const fresh = CATALOG.filter((e) => selected.has(e.id) && !have.has(e.id) && !disabled.has(e.id));
+  // Registry tools (`mise:<name>`) are not in CATALOG; resolveSelection has already validated them.
+  const registry = [...selected].flatMap((id) => {
+    const e = id.startsWith("mise:") ? catalogEntry(id) : undefined;
+    return e?.kind === "registry" ? [e] : [];
+  });
+  const fresh = [...CATALOG, ...registry].filter(
+    (e) => selected.has(e.id) && !have.has(e.id) && !disabled.has(e.id),
+  );
   if (fresh.length > 0) {
     await database.insert(workspaceTools).values(
       fresh.map((e) => {
@@ -110,6 +117,7 @@ export async function createWorkspaceForUser(
     const selected = new Set<string>([
       ...selection.tools,
       ...selection.packageManagers,
+      ...selection.registry,
       ...selection.agents,
     ]);
     const disabled = new Set<string>(settings.disabled);

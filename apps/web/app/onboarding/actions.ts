@@ -45,10 +45,9 @@ export async function saveToolSelectionAction(input: unknown) {
     const { userId } = await actor();
     const { toolIds, versions } = parse(toolsInput, input);
     const chosen = Object.fromEntries(
-      Object.entries(versions ?? {}).map(([id, v]) => [
-        id,
-        { channel: v.channel, pinnedVersion: v.pinnedVersion ?? null },
-      ]),
+      Object.entries(versions ?? {}).flatMap(([id, v]) =>
+        v ? [[id, { channel: v.channel, pinnedVersion: v.pinnedVersion ?? null }]] : [],
+      ),
     );
     await saveSelection(db, userId, "runtime", toolIds, chosen);
   });

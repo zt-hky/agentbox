@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { ChainBar } from "@/components/chain";
+import { RegistryVersion } from "@/components/registry-version";
 import { HashTicker } from "@/components/hash-ticker";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DataTable, columnHelper, type Columns } from "@/components/data-table";
@@ -28,8 +30,40 @@ import {
 } from "./actions";
 import { useToolAction } from "./use-tool-action";
 
+/** Registry tools: `Latest` or a typed version; applied with a button so typing never queues runs. */
+function RegistryChannelCell({ tool }: { tool: ToolRowView }) {
+  const { pending, run } = useToolAction();
+  const current = channelValue(tool.channel, tool.pinnedVersion);
+  const [value, setValue] = useState(current);
+  const changed = value !== current && (value === "latest" || value.length > 4);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <RegistryVersion label={tool.label} value={value} onChange={setValue} disabled={pending} />
+      {changed ? (
+        <Button
+          size="sm"
+          disabled={pending}
+          onClick={() =>
+            run(
+              () =>
+                selectToolVersionAction({
+                  toolId: tool.toolId,
+                  selection: parseChannelValue(value),
+                }),
+              `${tool.label} change queued`,
+            )
+          }
+        >
+          Apply
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function ChannelCell({ tool }: { tool: ToolRowView }) {
   const { pending, run } = useToolAction();
+  if (tool.kind === "registry") return <RegistryChannelCell tool={tool} />;
   const options = channelOptions(tool, tool);
   if (options.length <= 1) {
     return <span className="text-sm">{options[0]?.label ?? "Latest"}</span>;
@@ -88,7 +122,7 @@ function ActionsCell({ tool, asleep }: { tool: ToolRowView; asleep: boolean }) {
             </Button>
           }
           title={`Install ${tool.label}?`}
-          description={`Uses about ${tool.sizeHintMb} MB of workspace disk.${wake}`}
+          description={`${tool.sizeHintMb === null ? "The download size is not known in advance." : `Uses about ${tool.sizeHintMb} MB of workspace disk.`}${wake}`}
           confirmLabel="Install"
           onConfirm={confirm(
             () => installToolAction({ toolId: tool.toolId }),
@@ -107,7 +141,7 @@ function ActionsCell({ tool, asleep }: { tool: ToolRowView; asleep: boolean }) {
           Upgrade
         </Button>
       ) : null}
-      {tool.canReinstall && tool.state === "failed" ? (
+      {tool.canReinstall && (tool.state === "failed" || tool.kind === "registry") ? (
         <Button
           size="sm"
           variant="outline"
@@ -235,7 +269,9 @@ function makeColumns(asleep: boolean): Columns<ToolRowView> {
         return t.sizeBytes !== null ? (
           formatBytes(t.sizeBytes)
         ) : (
-          <span className="text-muted-foreground">about {t.sizeHintMb} MB</span>
+          <span className="text-muted-foreground">
+            {t.sizeHintMb === null ? "unknown" : `about ${t.sizeHintMb} MB`}
+          </span>
         );
       },
     }),
@@ -251,10 +287,21 @@ export function ToolsTable({
   tools,
   asleep,
   empty,
+  registry = false,
 }: {
   tools: ToolRowView[];
   asleep: boolean;
   empty: string;
+  /** Registry tools have no update check, so the "Latest for channel" column is left out. */
+  registry?: boolean;
 }) {
-  return <DataTable flush columns={makeColumns(asleep)} data={tools} empty={empty} />;
+  const columns = makeColumns(asleep);
+  return (
+    <DataTable
+      flush
+      columns={registry ? columns.filter((c) => c.id !== "target") : columns}
+      data={tools}
+      empty={empty}
+    />
+  );
 }

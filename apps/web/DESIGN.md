@@ -87,6 +87,7 @@ live in `components/nav-config.ts` (`ADMIN_NAV_GROUPS`: People, Workspaces, Plat
 - `EmptyState({ title, description?, action? })` dashed panel; always say what to do next.
 - `Chain({ items: { key, label, detail?, state: "pending"|"active"|"done"|"failed" }[], orientation? })`, `ChainBar({ value 0..1, active, label })`, `HashTicker({ active, settled?, length? })` **client**: the motion-exception components; use only where the exception allows.
 - `Mono({ children, className? })` inline JetBrains Mono.
+- `RegistrySearch({ onPick, exclude, disabled?, label? })` **client**: ARIA combobox over the mise registry (`searchMiseTools`), results listed under the input; `RegistryVersion({ label, value, onChange, disabled? })` **client**: `Latest` / `Specific version` + typed version, value `latest` or `pin:<v>`. Used by onboarding step 1a and `/tools` > Other tools.
 - `KeyValueList({ items: { label, value: ReactNode, mono? }[] })` technical properties.
 - `CodeBlock({ text, wrap?, maxHeight?, label? })` scrollable mono block with copy button (`CopyButton` is the client part).
 - `Timeline({ items: { id?, title, time, detail?, status? }[] })` events; `status` colours the lamp.

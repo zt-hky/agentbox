@@ -1,6 +1,9 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
+  REGISTRY_TOOL_LIMIT,
+  REGISTRY_VERSION_RE,
   VERSION_RE,
+  catalogEntry,
   isLine,
   requireEntry,
   selectableLines,
@@ -17,7 +20,7 @@ import { writeAudit } from "../audit";
 import type { Db, DbLike } from "../db-types";
 import { UserError } from "../errors";
 import { assertCanApplyToolchain, TOOLCHAIN_WORKSPACE_STATUSES } from "./gate";
-import { loadLatestMap, loadToolsView, type ToolRowView } from "./view";
+import { buildToolRow, defaultFor, loadLatestMap, loadToolsView, type ToolRowView } from "./view";
 
 export interface ToolchainActor {
   userId: string;
@@ -50,6 +53,13 @@ export function validateSelection(
   if (channel !== "pin") return { channel, pinnedVersion: null };
 
   const pinned = selection.pinnedVersion;
+  if (entry.kind === "registry") {
+    // No published list to check against: mise resolves the typed version on the workspace.
+    if (!pinned || !REGISTRY_VERSION_RE.test(pinned)) {
+      throw new UserError("Enter a valid version, for example 1.2.3");
+    }
+    return { channel, pinnedVersion: pinned };
+  }
   if (!pinned || !VERSION_RE.test(pinned)) throw new UserError("Choose a version to pin");
   const versions = info?.versions ?? [];
   if (versions.length === 0) {
@@ -106,7 +116,12 @@ async function requireTool(
   const ws = await requireWorkspace(database, userId);
   // Reuse the page's seeding so a tool row always exists before it is changed.
   const view = await loadToolsView(database, userId);
-  const row = view?.tools.find((t) => t.toolId === toolId);
+  // A registry tool the user has never added has no row yet: show it as an installable one.
+  const row =
+    view?.tools.find((t) => t.toolId === toolId) ??
+    (entry.kind === "registry"
+      ? buildToolRow(entry, undefined, undefined, defaultFor([], entry))
+      : undefined);
   if (!row) throw new UserError("Tool not found");
   return { ws, row, entry };
 }
@@ -151,6 +166,17 @@ async function enqueue(
   return res;
 }
 
+async function assertRegistryRoom(database: DbLike, workspaceId: string): Promise<void> {
+  const rows = await database
+    .select({ toolId: workspaceTools.toolId })
+    .from(workspaceTools)
+    .where(and(eq(workspaceTools.workspaceId, workspaceId), eq(workspaceTools.desired, true)));
+  if (
+    rows.filter((r) => catalogEntry(r.toolId)?.kind === "registry").length >= REGISTRY_TOOL_LIMIT
+  ) {
+    throw new UserError(`You can keep at most ${REGISTRY_TOOL_LIMIT} tools from the mise registry`);
+  }
+}
 /** A package manager installs only on top of a language the workspace wants. */
 function assertLanguageWanted(row: ToolRowView, entry: CatalogEntry): void {
   if (row.installBlockedReason && !row.desired) {
@@ -168,6 +194,7 @@ export async function installTool(
   const { ws, row, entry } = await requireTool(database, actor.userId, input.toolId);
   assertLanguageWanted(row, entry);
   if (row.managed && row.desired) throw new UserError(`${entry.label} is already installed`);
+  if (entry.kind === "registry") await assertRegistryRoom(database, ws.id);
   const chosen = input.selection
     ? validateSelection(entry, input.selection, (await loadLatestMap(database)).get(entry.id))
     : { channel: row.channel, pinnedVersion: row.pinnedVersion };

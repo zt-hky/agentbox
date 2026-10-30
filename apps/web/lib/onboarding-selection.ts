@@ -5,6 +5,8 @@ import {
   type CatalogEntry,
   type Channel,
   type ToolId,
+  REGISTRY_TOOL_LIMIT,
+  REGISTRY_VERSION_RE,
 } from "@agentbox/core/toolchain";
 import { loadToolchainSettings } from "@agentbox/db/toolchain";
 import { user, workspaceTools, workspaces } from "@agentbox/db/schema";
@@ -31,6 +33,8 @@ export interface ResolvedSelection {
   tools: ToolId[];
   /** Package manager ids (kind `package-manager`) whose language is in `tools`. */
   packageManagers: ToolId[];
+  /** Tools picked from the mise registry (`mise:<name>`), saved with the languages. */
+  registry: ToolId[];
   /** Agent CLI ids (kind `agent`). */
   agents: ToolId[];
   /** Saved version choices for selected tools; tools without an entry follow the admin default. */
@@ -97,12 +101,19 @@ export async function resolveSelection(
     const requires = catalogEntry(id)?.requires;
     return !!requires && tools.includes(requires);
   });
-  const chosen = new Set<string>([...tools, ...packageManagers]);
+  const registry = pick(saved?.tools, "registry");
+  const chosen = new Set<string>([...tools, ...packageManagers, ...registry]);
 
   const versions: ChosenVersions = {};
   for (const [id, v] of Object.entries(saved?.versions ?? {})) {
     const entry = catalogEntry(id);
     if (!entry || !chosen.has(id) || !entry.channels.includes(v.channel as Channel)) continue;
+    if (
+      entry.kind === "registry" &&
+      v.channel === "pin" &&
+      !REGISTRY_VERSION_RE.test(v.pinnedVersion ?? "")
+    )
+      continue;
     const channel = v.channel as Channel;
     versions[entry.id] = {
       channel,
@@ -112,6 +123,7 @@ export async function resolveSelection(
   return {
     tools,
     packageManagers,
+    registry,
     agents: pick(saved?.agents, "agent"),
     versions,
     toolsSaved: saved?.tools !== undefined,
@@ -121,9 +133,9 @@ export async function resolveSelection(
 
 /**
  * Persist one half of the selection; ids must be enabled catalog tools of that half. The `runtime`
- * half takes languages and package managers: a package manager whose language is not selected is
- * dropped, and `versions` (validated against the catalog and the published versions) are kept only
- * for selected tools.
+ * half takes languages, their package managers and registry tools (`mise:<name>`, at most
+ * REGISTRY_TOOL_LIMIT): a package manager whose language is not selected is dropped, and `versions`
+ * (validated against the catalog and the published versions) are kept only for selected tools.
  */
 export async function saveSelection(
   database: DbLike,
@@ -132,12 +144,19 @@ export async function saveSelection(
   ids: readonly string[],
   versions: ChosenVersions = {},
 ): Promise<void> {
-  const kinds: SelectionKind[] = kind === "runtime" ? ["runtime", "package-manager"] : ["agent"];
+  const kinds: SelectionKind[] =
+    kind === "runtime" ? ["runtime", "package-manager", "registry"] : ["agent"];
   const allowed = new Set<string>();
-  for (const k of kinds) for (const e of await selectableEntries(database, k)) allowed.add(e.id);
+  for (const k of kinds) {
+    if (k !== "registry") for (const e of await selectableEntries(database, k)) allowed.add(e.id);
+  }
   const unique = [...new Set(ids)];
   for (const id of unique) {
-    if (!allowed.has(id)) throw new UserError(`"${id}" is not available`);
+    const isRegistry = kinds.includes("registry") && catalogEntry(id)?.kind === "registry";
+    if (!allowed.has(id) && !isRegistry) throw new UserError(`"${id}" is not available`);
+  }
+  if (unique.filter((id) => catalogEntry(id)?.kind === "registry").length > REGISTRY_TOOL_LIMIT) {
+    throw new UserError(`Pick at most ${REGISTRY_TOOL_LIMIT} tools from the mise registry`);
   }
   const kept = unique.filter((id) => {
     const requires = catalogEntry(id)?.requires;

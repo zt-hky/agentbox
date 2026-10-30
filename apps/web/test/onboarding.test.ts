@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { decrypt } from "@agentbox/core/tokens";
+import { REGISTRY, REGISTRY_TOOL_LIMIT } from "@agentbox/core/toolchain";
 import { readSetting } from "@agentbox/db/client";
 import { upsertToolLatest } from "@agentbox/db/toolchain";
 import {
@@ -27,7 +28,16 @@ import {
 import { resolveSelection, saveSelection } from "../lib/onboarding-selection";
 import { deleteOwnWorkspace, restartOwnWorkspace } from "../lib/user-lifecycle";
 import { createWorkspaceForUser } from "../lib/workspace-create";
+import { searchMiseTools } from "../app/registry-actions";
 import { createTestDb, seedAdmin, seedUser, type TestDb } from "./helpers/db";
+
+const session = vi.hoisted(() => ({ active: true }));
+vi.mock("@/lib/session", () => ({
+  requireActiveUser: async () => {
+    if (!session.active) throw new Error("redirect:/request-access");
+    return { user: { id: "u", accessStatus: "active" } };
+  },
+}));
 
 const KEY = randomBytes(32).toString("base64");
 let t: TestDb;
@@ -529,5 +539,100 @@ describe("versions and package managers", () => {
     expect(byId["go"]).toMatchObject({ channel: "latest", pinnedVersion: null });
     expect(byId["uv"]).toMatchObject({ channel: "latest", pinnedVersion: null });
     expect(byId["claude"]).toMatchObject({ channel: "latest", desired: true });
+  });
+});
+
+describe("registry tools (mise:<name>)", () => {
+  it("saves a valid registry id with latest or a pinned version, shows it in the state, and keeps it with the languages", async () => {
+    const { userId } = await approved();
+    await saveSelection(t.db, userId, "runtime", ["node", "mise:ripgrep", "mise:terraform"], {
+      node: { channel: "latest", pinnedVersion: null },
+      "mise:ripgrep": { channel: "latest", pinnedVersion: null },
+      "mise:terraform": { channel: "pin", pinnedVersion: "1.9.8" },
+    });
+    const sel = await resolveSelection(t.db, userId);
+    expect(sel.tools).toEqual(["node"]);
+    expect(sel.registry).toEqual(["mise:ripgrep", "mise:terraform"]);
+    expect(sel.versions["mise:terraform"]).toEqual({ channel: "pin", pinnedVersion: "1.9.8" });
+
+    const state = await loadOnboardingState(t.db, userId, { encryptionKey: KEY });
+    expect(state.registry.map((r) => [r.toolId, r.name, r.value])).toEqual([
+      ["mise:ripgrep", "ripgrep", "latest"],
+      ["mise:terraform", "terraform", "pin:1.9.8"],
+    ]);
+    expect(state.registry[0]!.backend).toMatch(/^aqua:/);
+    expect(state.selectedToolIds).toEqual(["node"]);
+
+    // The agents half leaves them alone.
+    await saveSelection(t.db, userId, "agent", ["claude"]);
+    expect((await resolveSelection(t.db, userId)).registry).toEqual([
+      "mise:ripgrep",
+      "mise:terraform",
+    ]);
+  });
+
+  it("rejects unknown names, bad versions, an unsupported channel and the agents half", async () => {
+    const { userId } = await approved();
+    await expect(saveSelection(t.db, userId, "runtime", ["mise:no-such-tool-xyz"])).rejects.toThrow(
+      UserError,
+    );
+    await expect(saveSelection(t.db, userId, "agent", ["mise:ripgrep"])).rejects.toThrow(UserError);
+    for (const pinnedVersion of ["1;id", "-1", "", "a b", "x".repeat(65)]) {
+      await expect(
+        saveSelection(t.db, userId, "runtime", ["mise:ripgrep"], {
+          "mise:ripgrep": { channel: "pin", pinnedVersion },
+        }),
+      ).rejects.toThrow(UserError);
+    }
+    await expect(
+      saveSelection(t.db, userId, "runtime", ["mise:ripgrep"], {
+        "mise:ripgrep": { channel: "lts", pinnedVersion: null },
+      }),
+    ).rejects.toThrow(/does not support the lts channel/);
+    const many = REGISTRY.slice(0, REGISTRY_TOOL_LIMIT + 1).map((t) => `mise:${t.name}`);
+    await expect(saveSelection(t.db, userId, "runtime", many)).rejects.toThrow(/at most/);
+    expect((await resolveSelection(t.db, userId)).registry).toEqual([]);
+  });
+
+  it("creates workspace_tools rows for registry picks with their channel and pin", async () => {
+    const { userId } = await approved();
+    await saveSelection(t.db, userId, "runtime", ["node", "mise:ripgrep", "mise:terraform"], {
+      "mise:terraform": { channel: "pin", pinnedVersion: "1.9" },
+    });
+    await saveSelection(t.db, userId, "agent", []);
+    await create(userId);
+    const ws = await wsOf(userId);
+    const rows = await t.db
+      .select()
+      .from(workspaceTools)
+      .where(eq(workspaceTools.workspaceId, ws.id));
+    const byId = Object.fromEntries(rows.map((r) => [r.toolId, r]));
+    expect(Object.keys(byId).sort()).toEqual(["mise:ripgrep", "mise:terraform", "node"]);
+    expect(byId["mise:ripgrep"]).toMatchObject({
+      channel: "latest",
+      pinnedVersion: null,
+      desired: true,
+      state: "pending",
+    });
+    expect(byId["mise:terraform"]).toMatchObject({
+      channel: "pin",
+      pinnedVersion: "1.9",
+      desired: true,
+    });
+  });
+
+  it("searchMiseTools needs an active user, caps at 20 and returns nothing for an empty query", async () => {
+    const hits = await searchMiseTools("rip");
+    expect(hits[0]).toMatchObject({ id: "mise:ripgrep", name: "ripgrep" });
+    expect(hits[0]!.backend).toMatch(/:/);
+    expect(Object.keys(hits[0]!).sort()).toEqual(["backend", "description", "id", "name"]);
+    expect((await searchMiseTools("e")).length).toBe(20);
+    expect(await searchMiseTools("")).toEqual([]);
+    session.active = false;
+    try {
+      await expect(searchMiseTools("rip")).rejects.toThrow(/request-access/);
+    } finally {
+      session.active = true;
+    }
   });
 });

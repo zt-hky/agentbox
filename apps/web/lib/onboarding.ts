@@ -2,6 +2,7 @@ import { and, desc, eq, gte } from "drizzle-orm";
 import { credentialSpecs, type AgentCredentialSpec } from "@agentbox/core/agent-credentials";
 import {
   BUNDLED_PACKAGE_MANAGERS,
+  catalogEntry,
   isManaged,
   type CatalogEntry,
   type ToolId,
@@ -38,7 +39,7 @@ export interface OnboardingToolOption {
   label: string;
   description: string;
   kind: "runtime" | "package-manager" | "agent";
-  sizeHintMb: number;
+  sizeHintMb: number | null;
   selected: boolean;
 }
 
@@ -57,6 +58,15 @@ export interface OnboardingRuntimeOption extends OnboardingToolOption {
   bundled: { name: string; detail: string }[];
 }
 
+/** A tool the user picked from the mise registry, with its saved version (`latest` or `pin:<v>`). */
+export interface OnboardingRegistryPick {
+  toolId: ToolId;
+  name: string;
+  description: string;
+  backend: string;
+  value: string;
+}
+
 export type AgentCredentialOption = AgentCredentialSpec;
 
 export interface OnboardingAgentOption extends OnboardingToolOption {
@@ -69,6 +79,7 @@ export interface OnboardingState {
   step: OnboardingStep;
   onboarded: boolean;
   tools: OnboardingRuntimeOption[];
+  registry: OnboardingRegistryPick[];
   agents: OnboardingAgentOption[];
   selectedToolIds: ToolId[];
   selectedManagerIds: ToolId[];
@@ -152,8 +163,24 @@ export async function loadOnboardingState(
       : live
         ? "create"
         : "accounts";
+  const registry = selection.registry.flatMap((id): OnboardingRegistryPick[] => {
+    const e = catalogEntry(id);
+    const backend = e?.backends[0]?.spec;
+    if (!e || !backend) return [];
+    const chosen = selection.versions[id];
+    return [
+      {
+        toolId: e.id,
+        name: e.label,
+        description: e.description,
+        backend,
+        value: chosen ? channelValue(chosen.channel, chosen.pinnedVersion) : "latest",
+      },
+    ];
+  });
   return {
     step,
+    registry,
     onboarded: u.onboardedAt !== null,
     tools: runtimes.map((e) => ({
       ...toOption(e, selection.tools),
@@ -245,6 +272,7 @@ export async function loadOnboardingProgress(
   const wanted = new Set<string>([
     ...selection.tools,
     ...selection.packageManagers,
+    ...selection.registry,
     ...selection.agents,
   ]);
   const [rows, runs, entries] = await Promise.all([
@@ -262,6 +290,7 @@ export async function loadOnboardingProgress(
     ]),
   ]);
   const labels = new Map(entries.flat().map((e) => [e.id as string, e.label]));
+  for (const id of selection.registry) labels.set(id, catalogEntry(id)?.label ?? id);
   const tools = rows
     .filter((r) => wanted.has(r.toolId) && labels.has(r.toolId))
     .map((r) => ({

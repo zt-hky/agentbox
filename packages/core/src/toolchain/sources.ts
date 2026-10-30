@@ -113,6 +113,8 @@ export async function fetchLatestInfo(
       info = parseMuseManifest(await manifest.json());
       break;
     }
+    case "none":
+      throw new Error(`${entry.label} has no version source`);
   }
   return { ...info, versions: info.versions.slice(0, versionsToKeep(entry)) };
 }

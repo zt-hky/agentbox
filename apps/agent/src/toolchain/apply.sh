@@ -279,6 +279,53 @@ stage_links() {
   return 0
 }
 
+# resolve_registry_version <spec> <latest|pin> -> exact version mise would install (empty on failure; mise's stderr lands in $MISE_OUT)
+resolve_registry_version() {
+  local q=$1 out
+  [ "$2" = latest ] || q="$1@$2"
+  out=$(timeout --foreground -k 5 90 mise latest "$q" 2>"$MISE_OUT" </dev/null | head -n 1)
+  if [[ $out =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$ ]]; then printf '%s' "$out"; else return 1; fi
+}
+
+# stage_registry_links <tool> <install-dir> <stage-dir>
+# Registry tools declare no bins: every executable of <install-dir>/bin (or of the install root when it
+# has no bin/) is linked. A name already owned by another tool in toolchain.json is never overwritten.
+# Smoke test: at least one executable was linked; no --version call. Same outputs as stage_links.
+stage_registry_links() {
+  local tool=$1 dir=$2 stage=$3 root f name owner
+  STAGED_LINKS=()
+  STAGE_CODE=""
+  STAGE_ERROR=""
+  STAGE_OBSERVED=""
+  rm -rf "$stage" && mkdir -p "$stage" || {
+    STAGE_CODE=install_failed
+    STAGE_ERROR="cannot create staging dir"
+    return 1
+  }
+  root=$dir
+  [ -d "$dir/bin" ] && root=$dir/bin
+  for f in "$root"/*; do
+    { [ -f "$f" ] && [ -x "$f" ]; } || continue
+    name=${f##*/}
+    [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || continue
+    owner=$(jq -r --arg t "$tool" --arg n "$name" \
+      '.tools | to_entries[] | select(.key != $t and ((.value.bins // []) | index($n) != null)) | .key' "$STATE" 2>/dev/null | head -n 1)
+    if [ -n "$owner" ]; then
+      STAGE_CODE=install_failed
+      STAGE_ERROR="$name is already linked by $owner; refusing to overwrite it"
+      return 1
+    fi
+    make_entry "$f" "$stage/$name" || continue
+    STAGED_LINKS+=("$name=$f")
+  done
+  if [ "${#STAGED_LINKS[@]}" -eq 0 ]; then
+    STAGE_CODE=missing_bin
+    STAGE_ERROR="no executables found in the install dir"
+    return 1
+  fi
+  return 0
+}
+
 # swap_links: atomically replace each farm link with the staged targets, then drop stale links of the old state.
 swap_links() {
   local pair name target
@@ -327,7 +374,18 @@ finish_failed() { # tool action code error [backend]
 # --- actions -------------------------------------------------------------------------------------------
 do_install() {
   local i=$1 tool=$2 version=$3 nback b spec target dir rc code err pre old oldbackend oldversion oldprevious previous stage
-  local obs bins size now dur backend_ok="" preexisting
+  local obs bins size now dur backend_ok="" preexisting registry
+  registry=$(jq -r --argjson i "$i" '.steps[$i].registry // false' "$PLAN")
+  if [ "$registry" = true ]; then
+    spec=$(jq -r --argjson i "$i" '.steps[$i].backends[0].spec' "$PLAN")
+    if ! target=$(resolve_registry_version "$spec" "$version"); then
+      cat "$MISE_OUT" 2>/dev/null
+      finish_failed "$tool" install version_not_found "cannot resolve $spec@$version: $(tail_error "$MISE_OUT")" "$spec"
+      return
+    fi
+    log "$tool: $version resolves to $target"
+    version=$target
+  fi
   nback=$(jq -r --argjson i "$i" '.steps[$i].backends | length' "$PLAN")
   old=$(state_get "$tool")
   oldbackend=""
@@ -363,7 +421,8 @@ do_install() {
       err="mise install $spec@$version failed (exit $rc): $(tail_error "$MISE_OUT")"
     fi
     if [ "$rc" -eq 0 ]; then
-      if stage_links "$i" "$dir" "$stage"; then
+      if { [ "$registry" = true ] && stage_registry_links "$tool" "$dir" "$stage"; } ||
+        { [ "$registry" != true ] && stage_links "$i" "$dir" "$stage"; }; then
         backend_ok=$b
         break
       fi
@@ -390,6 +449,8 @@ do_install() {
   previous=""
   if [ "$oldbackend" = "$spec" ]; then
     if [ "$oldversion" != "$version" ]; then previous=$oldversion; else previous=$oldprevious; fi
+    # registry installs keep no previous version (nothing to roll back to)
+    [ "$registry" != true ] || previous=""
     # links of the old state that the new install no longer provides
     local stale
     while IFS= read -r stale; do
@@ -481,8 +542,26 @@ do_remove() {
 }
 
 do_verify() {
-  local i=$1 tool=$2 name optional resolved out rc line="" first="" path="" missing=""
+  local i=$1 tool=$2 name optional resolved out rc line="" first="" path="" missing="" old
   local -a vargs
+  if [ "$(jq -r --argjson i "$i" '.steps[$i].registry // false' "$PLAN")" = true ]; then
+    old=$(state_get "$tool")
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      if [ -e "$BIN_DIR/$name" ]; then
+        [ -n "$path" ] || path="$BIN_DIR/$name"
+      else
+        missing=$name
+      fi
+    done < <(jq -r '.bins[]?' <<<"${old:-null}" 2>/dev/null)
+    if [ -z "$path" ] || [ -n "$missing" ]; then
+      emit "$tool" verify skipped durationMs "$(($(now_ms) - STEP_START))"
+    else
+      emit "$tool" verify ok path "$path" durationMs "$(($(now_ms) - STEP_START))"
+    fi
+    CURRENT_TOOL=""
+    return
+  fi
   mapfile -t vargs < <(jq -r --argjson i "$i" '.steps[$i].versionArgs[]' "$PLAN")
   while IFS=$'\t' read -r name optional; do
     if ! resolved=$(command -v "$name" 2>/dev/null) || [ -z "$resolved" ]; then

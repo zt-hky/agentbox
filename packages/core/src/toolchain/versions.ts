@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { CatalogEntry, Channel } from "./catalog.ts";
+import { REGISTRY_VERSION_RE } from "./registry.ts";
 
 /** Stable releases only: `1.2.3`, plus Muse's `1.4.14-R7309.1` revision form. */
 const STABLE_RE = /^\d+\.\d+\.\d+(?:-R\d+(?:\.\d+)?)?$/;
@@ -75,6 +76,15 @@ export function resolveTarget(
   pinned: string | null | undefined,
   info: LatestInfo | undefined,
 ): Resolution {
+  if (entry.kind === "registry") {
+    // No published-version list: `latest` and pins are resolved by mise on the workspace.
+    if (channel === "pin") {
+      return pinned && REGISTRY_VERSION_RE.test(pinned)
+        ? { ok: true, version: pinned }
+        : { ok: false, reason: "no version selected" };
+    }
+    return { ok: true, version: "latest" };
+  }
   if (!info || (info.versions.length === 0 && !info.latest)) {
     return { ok: false, reason: `no published versions known for ${entry.label} yet` };
   }
@@ -106,7 +116,8 @@ export function resolveTarget(
 
 /** Whether an installed version already satisfies a pin (a line is satisfied by any patch in it). */
 export function satisfiesPin(entry: CatalogEntry, pinned: string, installed: string): boolean {
-  if (entry.lines && isLine(pinned))
+  // A registry pin may be a prefix (`3.12`): any install of that line satisfies it.
+  if ((entry.lines && isLine(pinned)) || entry.kind === "registry")
     return installed === pinned || installed.startsWith(`${pinned}.`);
   return installed === pinned;
 }

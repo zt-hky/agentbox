@@ -46,7 +46,8 @@ export interface ToolRowView {
   installedVersion: string | null;
   previousVersion: string | null;
   sizeBytes: number | null;
-  sizeHintMb: number;
+  /** Unknown (null) for registry tools. */
+  sizeHintMb: number | null;
   /** State to show: `idle` with a wanted-but-missing (or unwanted-but-present) tool reads as pending. */
   state: ToolState;
   lastError: string | null;
@@ -275,6 +276,16 @@ export async function loadToolsView(database: DbLike, userId: string): Promise<T
   const tools = CATALOG.filter((e) => !disabled.has(e.id)).map((e) =>
     buildToolRow(e, byTool.get(e.id), latest.get(e.id), defaultFor(settings.defaults, e)),
   );
+  // Registry tools the user added: only those wanted or still present, never removed ones.
+  const registry = rows
+    .flatMap((r) => {
+      const e = catalogEntry(r.toolId);
+      return e?.kind === "registry" ? [{ e, r }] : [];
+    })
+    .map(({ e, r }) => buildToolRow(e, r, undefined, defaultFor(settings.defaults, e)))
+    .filter((t) => t.desired || t.managed)
+    .sort((a, b) => a.label.localeCompare(b.label));
+  tools.push(...registry);
   // A package manager installs only on top of a language the user wants.
   for (const t of tools) {
     if (t.requires && !t.managed && !t.desired && !byTool.get(t.requires)?.desired) {

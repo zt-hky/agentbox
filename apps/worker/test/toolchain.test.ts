@@ -147,6 +147,57 @@ describe("reconcile_toolchain: plan and version resolution", () => {
     expect((await jobsOf("reconcile_toolchain"))[0]!.status).toBe("done");
   });
 
+  it("plans registry tools after curated ones: latest and a typed pin go to the agent unresolved", async () => {
+    const w = await seedWorld(t.db, { status: "running" });
+    await addTool(w.workspaceId, "bun", { channel: "latest" });
+    await addTool(w.workspaceId, "mise:ripgrep" as ToolId, { channel: "latest" });
+    await addTool(w.workspaceId, "mise:terraform" as ToolId, {
+      channel: "pin",
+      pinnedVersion: "1.9",
+    });
+    await latest("bun", { latest: "1.3.4", versions: ["1.3.4"] });
+    await reconcileJob(w.workspaceId);
+
+    await runAll();
+
+    const [apply] = agent.toolchain.applies;
+    expect(apply!.steps.map((s) => [s.tool, s.action, s.version, s.registry ?? false])).toEqual([
+      ["bun", "install", "1.3.4", false],
+      ["mise:ripgrep", "install", "latest", true],
+      ["mise:terraform", "install", "1.9", true],
+    ]);
+    const rg = apply!.steps[1]!;
+    expect(rg.bins).toEqual([]);
+    expect(rg.backends).toHaveLength(1);
+    expect(rg.backends[0]!.spec).toMatch(/^aqua:/);
+    expect(await tool(w.workspaceId, "mise:terraform" as ToolId)).toMatchObject({
+      state: "idle",
+      lastError: null,
+      installedVersion: "1.9",
+    });
+    expect(await tool(w.workspaceId, "mise:ripgrep" as ToolId)).toMatchObject({ state: "idle" });
+    expect((await runs(w.workspaceId))[0]).toMatchObject({ status: "succeeded" });
+  });
+
+  it("an upgrade request reinstalls a registry tool on latest; no latest data is needed", async () => {
+    const w = await seedWorld(t.db, { status: "running" });
+    await addTool(w.workspaceId, "mise:ripgrep" as ToolId, {
+      channel: "latest",
+      state: "idle",
+      installedVersion: "14.1.1",
+      backend: "aqua:BurntSushi/ripgrep",
+      requestedAction: "upgrade",
+    });
+    await reconcileJob(w.workspaceId);
+
+    await runAll();
+
+    const [apply] = agent.toolchain.applies;
+    expect(apply!.steps.map((s) => [s.tool, s.action, s.version])).toEqual([
+      ["mise:ripgrep", "install", "latest"],
+    ]);
+  });
+
   it("verifies image-provided tools first; the external version is observed but stays unmanaged", async () => {
     const w = await seedWorld(t.db, { status: "running" });
     await addTool(w.workspaceId, "claude", { state: "external", observedAt: null });
@@ -463,15 +514,13 @@ describe("reconcile_toolchain: interruption", () => {
       .update(workspaces)
       .set({ status: "sleeping" })
       .where(eq(workspaces.id, w.workspaceId));
-    await t.db
-      .insert(images)
-      .values({
-        version: nextImageVersion(),
-        imageId: IMAGE_ID,
-        rootfsPath: "/r",
-        t3Ref: "m",
-        status: "active",
-      });
+    await t.db.insert(images).values({
+      version: nextImageVersion(),
+      imageId: IMAGE_ID,
+      rootfsPath: "/r",
+      t3Ref: "m",
+      status: "active",
+    });
     await enqueueJob(t.db, { type: "start_workspace", workspaceId: w.workspaceId });
     await t.db.update(jobs).set({ runAfter: clock.now() });
     await runAll(); // start (+ hook)
@@ -538,16 +587,14 @@ describe("reconcile_toolchain: auto-start", () => {
 
   it("starts a sleeping workspace, then the start hook resumes the same run", async () => {
     const w = await seedWorld(t.db, { status: "sleeping" });
-    await t.db
-      .insert(images)
-      .values({
-        version: nextImageVersion(),
-        imageId: IMAGE_ID,
-        rootfsPath: "/r",
-        t3Ref: "m",
-        status: "active",
-        manifest,
-      });
+    await t.db.insert(images).values({
+      version: nextImageVersion(),
+      imageId: IMAGE_ID,
+      rootfsPath: "/r",
+      t3Ref: "m",
+      status: "active",
+      manifest,
+    });
     await addTool(w.workspaceId, "bun");
     await latest("bun", { latest: "1.3.4", versions: ["1.3.4"] });
     const { runId } = await requestReconcile(t.db, { workspaceId: w.workspaceId, trigger: "user" });
@@ -640,16 +687,14 @@ describe("reconcile_toolchain: auto-start", () => {
 describe("start hook", () => {
   async function startOnce(manifest: unknown, ws0: Partial<typeof workspaces.$inferInsert> = {}) {
     const w = await seedWorld(t.db, { status: "sleeping", workspace: ws0 });
-    await t.db
-      .insert(images)
-      .values({
-        version: nextImageVersion(),
-        imageId: IMAGE_ID,
-        rootfsPath: "/r",
-        t3Ref: "m",
-        status: "active",
-        manifest,
-      });
+    await t.db.insert(images).values({
+      version: nextImageVersion(),
+      imageId: IMAGE_ID,
+      rootfsPath: "/r",
+      t3Ref: "m",
+      status: "active",
+      manifest,
+    });
     await t.db
       .insert(jobs)
       .values({ type: "start_workspace", workspaceId: w.workspaceId, runAfter: clock.now() });
@@ -677,16 +722,14 @@ describe("start hook", () => {
 
   it("never fails the start when the hook breaks", async () => {
     const w = await seedWorld(t.db, { status: "sleeping" });
-    await t.db
-      .insert(images)
-      .values({
-        version: nextImageVersion(),
-        imageId: IMAGE_ID,
-        rootfsPath: "/r",
-        t3Ref: "m",
-        status: "active",
-        manifest: mise,
-      });
+    await t.db.insert(images).values({
+      version: nextImageVersion(),
+      imageId: IMAGE_ID,
+      rootfsPath: "/r",
+      t3Ref: "m",
+      status: "active",
+      manifest: mise,
+    });
     await t.db
       .insert(jobs)
       .values({ type: "start_workspace", workspaceId: w.workspaceId, runAfter: clock.now() });

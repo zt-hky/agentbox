@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Chain, type ChainItem } from "@/components/chain";
-import type { OnboardingState, OnboardingStep } from "@/lib/onboarding";
+import type { OnboardingRegistryPick, OnboardingState, OnboardingStep } from "@/lib/onboarding";
 import { AccountsStep } from "./accounts-step";
 import { CreateStep } from "./create-step";
 import { PickStep } from "./pick-step";
@@ -31,6 +31,7 @@ export function Wizard({
   const [step, setStep] = useState<OnboardingStep>(initialStep);
   const [toolIds, setToolIds] = useState<ToolId[]>(state.selectedToolIds);
   const [managerIds, setManagerIds] = useState<ToolId[]>(state.selectedManagerIds);
+  const [registry, setRegistry] = useState<OnboardingRegistryPick[]>(state.registry);
   const [versions, setVersions] = useState<VersionValues>({});
   const [agentIds, setAgentIds] = useState<ToolId[]>(state.selectedAgentIds);
   const current = STEPS.findIndex((s) => s.id === step);
@@ -51,9 +52,11 @@ export function Wizard({
           tools={state.tools}
           toolIds={toolIds}
           managerIds={managerIds}
+          registry={registry}
           versions={versions}
           onToolIdsChange={setToolIds}
           onManagerIdsChange={setManagerIds}
+          onRegistryChange={setRegistry}
           onVersionsChange={setVersions}
           save={saveToolSelectionAction}
           onDone={() => setStep("agents")}

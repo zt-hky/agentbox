@@ -30,11 +30,16 @@ export const agentStepSchema = z
   .object({
     tool: toolIdSchema,
     action: z.enum(["install", "remove", "relink", "verify"]),
-    /** Exact version for install/relink. */
+    /** Exact version for install/relink; registry installs may also say `latest` or a typed pin. */
     version: versionSchema.nullable(),
     backends: z
       .array(z.object({ spec: backendSpecSchema, options: backendOptionsSchema.optional() }))
       .max(3),
+    /**
+     * Registry tools (`mise:<name>`) have no known bins: the apply script links every executable of
+     * the install and records the list in toolchain.json.
+     */
+    registry: z.boolean().optional(),
     bins: z
       .array(
         z.object({
@@ -43,7 +48,6 @@ export const agentStepSchema = z
           optional: z.boolean().default(false),
         }),
       )
-      .min(1)
       .max(8),
     versionArgs: z.array(z.string().regex(/^(?:-{1,2}[a-z][a-z-]*|version)$/)).max(3),
   })
@@ -52,6 +56,8 @@ export const agentStepSchema = z
       ctx.addIssue({ code: "custom", message: `${s.action} needs a version`, path: ["version"] });
     if (s.action === "install" && s.backends.length === 0)
       ctx.addIssue({ code: "custom", message: "install needs a backend", path: ["backends"] });
+    if (!s.registry && s.bins.length === 0)
+      ctx.addIssue({ code: "custom", message: "curated tools need bins", path: ["bins"] });
   });
 export type AgentStep = z.infer<typeof agentStepSchema>;
 
@@ -59,7 +65,7 @@ export type AgentStep = z.infer<typeof agentStepSchema>;
 export const toolchainApplyRequestSchema = z.object({
   runId: jobIdSchema,
   mode: z.enum(["apply", "check"]),
-  steps: z.array(agentStepSchema).max(24),
+  steps: z.array(agentStepSchema).max(48),
 });
 export type ToolchainApplyRequest = z.infer<typeof toolchainApplyRequestSchema>;
 

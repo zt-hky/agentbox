@@ -6,3 +6,4 @@ coverage
 pnpm-lock.yaml
 packages/db/drizzle
 images
+packages/core/src/toolchain/mise-registry.json
