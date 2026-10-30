@@ -44,8 +44,8 @@ export type GithubConnectConfig = {
 };
 
 export const GITHUB_CONNECT_CALLBACK_PATH = "/api/github/callback";
-/** A subdirectory of the sign-in app's registered callback (`/api/auth/callback/github`). */
-export const GITHUB_SHARED_CALLBACK_PATH = "/api/auth/callback/github/connect";
+/** The sign-in app's exact registered callback; GitHub rejected a subdirectory of it in production. */
+export const GITHUB_SHARED_CALLBACK_PATH = "/api/auth/callback/github";
 
 /** Dedicated `GITHUB_CONNECT_*` app wins; else reuse the sign-in `GITHUB_CLIENT_*` app. */
 export function githubConnectConfig(): GithubConnectConfig | null {

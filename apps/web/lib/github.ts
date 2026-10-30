@@ -45,6 +45,15 @@ export function statesMatch(a: string | null, b: string | null): boolean {
   return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
+/** A request on the shared sign-in callback belongs to Connect only when it carries Connect's state. */
+export function isConnectCallback(request: Request): boolean {
+  const url = new URL(request.url);
+  return statesMatch(
+    url.searchParams.get("state"),
+    readCookie(request.headers.get("cookie"), GH_STATE_COOKIE),
+  );
+}
+
 /** Relative-Location redirect (the Node server only sees http behind the TLS-terminating tunnel). */
 export function redirectResponse(location: string, cookies: string[] = []): Response {
   const headers = new Headers({ Location: location, "Cache-Control": "no-store" });

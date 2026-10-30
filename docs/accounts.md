@@ -19,10 +19,11 @@ start (`workspaces.github_sync_pending`).
 setup-git` wrote, but only when every helper in the section is gh's.
 - OAuth app selection (`githubConnectConfig`): `GITHUB_CONNECT_CLIENT_ID`/`_SECRET` (dedicated app,
   callback `/api/github/callback`) win; otherwise the sign-in app `GITHUB_CLIENT_ID`/`_SECRET` is
-  reused with callback `/api/auth/callback/github/connect` (GitHub accepts a redirect_uri that is a
-  subdirectory of the registered `/api/auth/callback/github`; no app change needed). Neither set:
-  the page shows "Not available". The static connect route beats better-auth's
-  `app/api/auth/[...all]` catch-all. A shared app may request the extra scopes; sign-in itself still
+  reused with its exact registered callback `/api/auth/callback/github` (GitHub rejected a
+  subdirectory of it in production). The better-auth catch-all hands that request to Connect only
+  when its `state` matches Connect's `__Host-abx_gh_state` cookie; everything else is sign-in.
+  Neither set: the page shows "Not available". A shared app may request the extra scopes; sign-in
+  itself still
   asks only `read:user user:email`. Because that grant is also the user's sign-in authorization,
   Disconnect on a shared app revokes only the token
   (`DELETE /applications/{client_id}/token`), never `/grant`.

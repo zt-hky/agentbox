@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { githubConnectConfig } from "../lib/env";
-import { authorizeUrl, exchangeCode, revokeConnection } from "../lib/github";
+import {
+  GH_STATE_COOKIE,
+  authorizeUrl,
+  exchangeCode,
+  isConnectCallback,
+  revokeConnection,
+} from "../lib/github";
 
 const KEYS = [
   "GITHUB_CONNECT_CLIENT_ID",
@@ -34,7 +40,7 @@ describe("github connect", () => {
     expect(githubConnectConfig()).toEqual({
       clientId: "sid",
       clientSecret: "ssec",
-      callbackPath: "/api/auth/callback/github/connect",
+      callbackPath: "/api/auth/callback/github",
       shared: true,
     });
     process.env.GITHUB_CONNECT_CLIENT_ID = "did";
@@ -52,7 +58,7 @@ describe("github connect", () => {
     const cfg = {
       clientId: "sid",
       clientSecret: "ssec",
-      callbackPath: "/api/auth/callback/github/connect",
+      callbackPath: "/api/auth/callback/github",
     };
     const u = new URL(authorizeUrl(cfg, "st"));
     expect(new URL(u.searchParams.get("redirect_uri")!).pathname).toBe(cfg.callbackPath);
@@ -63,6 +69,16 @@ describe("github connect", () => {
       (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string,
     );
     expect(new URL(body.redirect_uri).pathname).toBe(cfg.callbackPath);
+  });
+
+  it("routes the shared callback to Connect only when the state matches its cookie", () => {
+    const cb = "https://app.example/api/auth/callback/github?code=c&state=";
+    const withCookie = (state: string, cookie?: string) =>
+      new Request(cb + state, cookie ? { headers: { cookie } } : undefined);
+    expect(isConnectCallback(withCookie("abc", `x=1; ${GH_STATE_COOKIE}=abc`))).toBe(true);
+    // A sign-in callback: better-auth's own state, stale or absent Connect cookie.
+    expect(isConnectCallback(withCookie("signin", `${GH_STATE_COOKIE}=abc`))).toBe(false);
+    expect(isConnectCallback(withCookie("abc"))).toBe(false);
   });
 
   it("shared disconnect revokes the token, dedicated revokes the grant", async () => {
