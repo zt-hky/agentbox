@@ -64,6 +64,7 @@ node apps/server/scripts/cli.ts build-exe --verbose
 SH
 COPY --from=monitor /out /out/resource-monitor
 RUN bash -euo pipefail <<'SH'
+command -v patchelf >/dev/null || { apt-get update && apt-get install -y --no-install-recommends patchelf && rm -rf /var/lib/apt/lists/*; }
 node scripts/build-cli-archive.ts --platform linux --arch x64 \
   --version 0.0.0-agentbox --output-dir /out \
   --resource-monitor-dir /out/resource-monitor
