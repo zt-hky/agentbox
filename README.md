@@ -12,6 +12,7 @@ Multi-tenant coding-agent SaaS on rootless Podman.
 - `images/workspace` — workspace image
 - `infra/` — host provisioning, control-plane deployment
 - `docs/security/` — sandbox docs and host validation
+- `docs/toolchain.md` — per-workspace runtimes and agent CLIs, slim image rollout
 
 ## Tests
 
