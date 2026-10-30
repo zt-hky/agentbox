@@ -173,7 +173,7 @@ export function sliceDropin(limits: TenantLimits): string {
   ].join("\n");
 }
 
-export function buildArgv(t3Ref: string, tag: string, context: string): string[] {
+export function buildArgv(t3Ref: string, tag: string, context: string, slim = false): string[] {
   return [
     "podman",
     "build",
@@ -181,6 +181,8 @@ export function buildArgv(t3Ref: string, tag: string, context: string): string[]
     "--no-cache",
     "--build-arg",
     `T3_REF=${t3Ref}`,
+    "--build-arg",
+    `SLIM=${slim ? 1 : 0}`,
     "-t",
     tag,
     context,

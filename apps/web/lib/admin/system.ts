@@ -258,7 +258,7 @@ export function extractVersions(log: string | null | undefined): ImageVersions |
     } catch {
       continue;
     }
-    if (!parsed || typeof parsed !== "object" || !("t3" in parsed) || !("node" in parsed)) continue;
+    if (!parsed || typeof parsed !== "object" || !("t3" in parsed)) continue;
     const out: ImageVersions = [];
     for (const [key, v] of Object.entries(parsed as Record<string, unknown>)) {
       if (typeof v === "string") out.push({ label: key, value: v });

@@ -27,7 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { ActionResult } from "@/lib/action";
 import type { ImageVersions } from "@/lib/admin/system";
 import { shortImageId, type ImageOption } from "@/lib/admin/image-view";
-import type { ImageUsage, WorkspaceImageRef } from "@/lib/admin/images-ops";
+import type { GateFailure, ImageUsage, WorkspaceImageRef } from "@/lib/admin/images-ops";
 import { formatDateTime } from "@/lib/format";
 import {
   activateImage,
@@ -35,6 +35,7 @@ import {
   deleteImage,
   moveWorkspacesToImage,
   pollImage,
+  reconcileWorkspaces,
   retireImage,
 } from "./actions";
 
@@ -42,6 +43,10 @@ export interface ImageRow extends ImageOption {
   buildLog: string;
   rootfsPresent: boolean;
   usage: ImageUsage;
+  /** Live workspaces the image's toolchain gate rejects. */
+  gate: GateFailure[];
+  /** The image bakes no runtimes or agent CLIs. */
+  slim: boolean;
   deleteQueued: boolean;
   lastDeleteError: string | null;
   overrideReason: string | null;
@@ -104,6 +109,58 @@ function ScanBadges({ scan }: { scan: ImageRow["scan"] }) {
 
 type MoveMode = "none" | "running" | "all";
 
+/** Workspaces an image gate rejects, with the reasons and a way to queue the reconcile that fixes them. */
+function GateNotice({
+  failures,
+  intro,
+  onDone,
+}: {
+  failures: GateFailure[];
+  intro: string;
+  onDone?: () => void;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  if (failures.length === 0) return null;
+  return (
+    <div className="grid gap-2 rounded-md border border-destructive/40 p-3 text-meta">
+      <p className="font-medium text-destructive">
+        {intro} {failures.length} workspace{failures.length === 1 ? "" : "s"}:
+      </p>
+      <ul className="max-h-40 list-disc space-y-1 overflow-y-auto pl-4 text-muted-foreground">
+        {failures.map((f) => (
+          <li key={f.slug}>
+            <Mono className="text-foreground">{f.slug}</Mono>: {f.reasons.join(" ")}
+          </li>
+        ))}
+      </ul>
+      <div>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pending}
+          onClick={() =>
+            start(async () => {
+              const res = await reconcileWorkspaces(failures.map((f) => f.slug));
+              if (!res.ok) {
+                toast.error(res.error);
+                return;
+              }
+              toast.success(
+                `Reconcile queued for ${res.data.queued.length} workspace${res.data.queued.length === 1 ? "" : "s"}`,
+              );
+              onDone?.();
+              router.refresh();
+            })
+          }
+        >
+          Reconcile now
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 const MOVE_CHOICES: { value: MoveMode; title: string; hint: string }[] = [
   {
     value: "none",
@@ -140,6 +197,9 @@ function ActivateDialog({
     (w) =>
       w.status === "running" && w.imageId !== row.imageId && (mode === "all" || !w.pinnedImageId),
   ).length;
+  // Followers pick the new image up on their next start; pinned ones only when "all" clears pins.
+  const pinnedSlugs = new Set(workspaces.filter((w) => w.pinnedImageId).map((w) => w.slug));
+  const blocked = row.gate.filter((f) => mode === "all" || !pinnedSlugs.has(f.slug));
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
@@ -188,9 +248,10 @@ function ActivateDialog({
             agents end.
           </p>
         ) : null}
+        <GateNotice failures={blocked} intro="Blocked: the toolchain gate rejects" />
         <DialogFooter>
           <Button
-            disabled={pending || (needsOverride && !reason.trim())}
+            disabled={pending || blocked.length > 0 || (needsOverride && !reason.trim())}
             onClick={() =>
               start(async () => {
                 const res = await activateImage(row.id, needsOverride ? reason : null, mode);
@@ -244,6 +305,7 @@ function MoveDialog({
   const restarts = movable.filter(
     (w) => selected.has(w.slug) && w.status === "running" && w.imageId !== target.imageId,
   ).length;
+  const blocked = target.gate.filter((f) => selected.has(f.slug));
   const toggle = (slug: string, on: boolean) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -351,9 +413,10 @@ function MoveDialog({
           {restarts} running workspace{restarts === 1 ? "" : "s"} will restart: running terminals
           and agents end.
         </p>
+        <GateNotice failures={blocked} intro="Blocked: the toolchain gate rejects" />
         <DialogFooter>
           <Button
-            disabled={pending || selected.size === 0}
+            disabled={pending || selected.size === 0 || blocked.length > 0}
             onClick={() =>
               start(async () => {
                 const res = await moveWorkspacesToImage(target.id, [...selected], mode);
@@ -611,6 +674,15 @@ function ImageEntry({
         {r.deleteQueued ? <Badge variant="outline">Delete queued</Badge> : null}
         {r.status === "building" || r.status === "failed" ? null : <ScanBadges scan={r.scan} />}
       </div>
+      {r.slim ? (
+        <p className="text-meta text-muted-foreground">
+          Slim image: no baked runtimes or agent CLIs. Workspaces need a completed toolchain
+          reconcile before they can use it.
+        </p>
+      ) : null}
+      {r.status === "ready" || r.status === "retired" ? (
+        <GateNotice failures={r.gate} intro="Cannot be activated or pinned for" />
+      ) : null}
       {r.lastDeleteError ? (
         <p className="text-meta text-destructive">Last delete failed: {r.lastDeleteError}</p>
       ) : null}
@@ -660,6 +732,7 @@ export function ImagesPanel({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [t3Ref, setT3Ref] = useState("omp-overlay");
+  const [slim, setSlim] = useState(false);
   const [activating, setActivating] = useState<ImageRow | null>(null);
   const [moving, setMoving] = useState<{ target: ImageRow; preselect: string[] | null } | null>(
     null,
@@ -678,7 +751,7 @@ export function ImagesPanel({
           onSubmit={(e) => {
             e.preventDefault();
             start(async () => {
-              const res = await buildImage(t3Ref);
+              const res = await buildImage(t3Ref, slim);
               if (!res.ok) toast.error(res.error);
               else {
                 toast.success("Build queued");
@@ -695,6 +768,12 @@ export function ImagesPanel({
               onChange={(e) => setT3Ref(e.target.value)}
               className="font-mono"
             />
+          </div>
+          <div className="flex items-center gap-2 pb-2">
+            <Checkbox id="slim" checked={slim} onCheckedChange={(c) => setSlim(c === true)} />
+            <Label htmlFor="slim" className="font-normal">
+              Slim (no baked runtimes or agent CLIs)
+            </Label>
           </div>
           <Button type="submit" disabled={pending || building.some((r) => !isStale(r))}>
             Build image

@@ -1,6 +1,6 @@
 # ~/.bashrc: seeded by AgentBox on first start.
-PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
-export PATH
+# PATH and mise/npm prefixes come from the image-owned /opt/agentbox/env.sh.
+[ -r /opt/agentbox/env.sh ] && . /opt/agentbox/env.sh
 case $- in
   *i*) ;;
   *) return ;;

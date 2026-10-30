@@ -14,6 +14,7 @@ import {
   activateImageWithMove,
   bulkMoveWorkspaces,
   requestImageDelete,
+  requestWorkspaceReconciles,
   type MoveMode,
 } from "@/lib/admin/images-ops";
 import { tailLog } from "@/lib/images";
@@ -21,11 +22,12 @@ import { t3RefSchema } from "@/lib/schemas";
 
 const idSchema = z.uuid();
 
-export async function buildImage(t3Ref: string) {
+export async function buildImage(t3Ref: string, slim = false) {
   return guard(async () => {
     const { admin, ip } = await adminContext();
     const parsed = t3RefSchema.safeParse(t3Ref);
     if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Invalid ref");
+    const isSlim = z.boolean().parse(slim);
     await db.transaction(async (tx) => {
       const building = await tx
         .select({ id: images.id })
@@ -43,7 +45,7 @@ export async function buildImage(t3Ref: string) {
         .values({
           type: "build_image",
           workspaceId: null,
-          payload: { imageRowId, t3Ref: parsed.data },
+          payload: { imageRowId, t3Ref: parsed.data, ...(isSlim ? { slim: true } : {}) },
         })
         .onConflictDoNothing();
       await writeAudit(tx, {
@@ -51,7 +53,7 @@ export async function buildImage(t3Ref: string) {
         action: "image.build",
         targetType: "image",
         targetId: imageRowId,
-        metadata: { t3Ref: parsed.data },
+        metadata: { t3Ref: parsed.data, slim: isSlim },
         ip,
       });
     });
@@ -156,6 +158,19 @@ export async function moveWorkspacesToImage(
     const result = await bulkMoveWorkspaces(db, { adminId: admin.id, ip }, input);
     revalidatePath("/admin/images");
     revalidatePath("/admin/workspaces");
+    return result;
+  });
+}
+
+/** "Reconcile now": enqueue a toolchain reconcile for workspaces an image gate rejects. */
+export async function reconcileWorkspaces(slugs: string[]) {
+  return guard(async () => {
+    const { admin, ip } = await adminContext();
+    const parsed = z.array(wsSlugSchema).min(1).max(500).parse(slugs);
+    const result = await requestWorkspaceReconciles(db, { adminId: admin.id, ip }, [
+      ...new Set(parsed),
+    ]);
+    revalidatePath("/admin/images");
     return result;
   });
 }

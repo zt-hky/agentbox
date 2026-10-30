@@ -77,6 +77,9 @@ SH
 # final
 # ---------------------------------------------------------------------------
 FROM ${UBUNTU_IMAGE}
+# SLIM=1 skips Node, Codex, Claude Code and Oh My Pi: workspaces install their own through mise.
+ARG SLIM=0
+ARG MISE_VERSION=2026.10.23
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=en_US.UTF-8 \
     DISABLE_AUTOUPDATER=1
@@ -106,6 +109,10 @@ SH
 
 # Node 24 LTS (latest v24.x), checksum-verified.
 RUN bash -euo pipefail <<'SH'
+if [ "$SLIM" = 1 ]; then
+  echo "SLIM=1: skipping"
+  exit 0
+fi
 cd /tmp
 curl -fsSLO https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt
 f="$(grep -o 'node-v[0-9.]*-linux-x64\.tar\.xz' SHASUMS256.txt | head -n1)"
@@ -128,6 +135,20 @@ tar -xzf uv-x86_64-unknown-linux-gnu.tar.gz --strip-components=1 --no-same-owner
 rm -f uv-x86_64-unknown-linux-gnu.tar.gz*
 SH
 
+# mise, checksum-verified against the release SHASUMS256.txt.
+RUN bash -euo pipefail <<'SH'
+cd /tmp
+u="https://github.com/jdx/mise/releases/download/v${MISE_VERSION}"
+f="mise-v${MISE_VERSION}-linux-x64.tar.gz"
+curl -fsSLO "${u}/${f}"
+curl -fsSLO "${u}/SHASUMS256.txt"
+grep " \./${f}\$" SHASUMS256.txt | sha256sum -c -
+tar -xzf "${f}" -C /tmp mise/bin/mise
+install -m 0755 /tmp/mise/bin/mise /usr/local/bin/mise
+rm -rf "${f}" SHASUMS256.txt /tmp/mise
+mise --version
+SH
+
 # code-server (MIT, Open VSX) from the latest GitHub release.
 RUN bash -euo pipefail <<'SH'
 cd /tmp
@@ -141,12 +162,20 @@ SH
 
 # Codex CLI.
 RUN bash -euo pipefail <<'SH'
+if [ "$SLIM" = 1 ]; then
+  echo "SLIM=1: skipping"
+  exit 0
+fi
 npm install -g @openai/codex@latest
 npm cache clean --force
 SH
 
 # Claude Code (native installer; HOME=/opt/claude keeps it out of tenant homes).
 RUN bash -euo pipefail <<'SH'
+if [ "$SLIM" = 1 ]; then
+  echo "SLIM=1: skipping"
+  exit 0
+fi
 mkdir -p /opt/claude
 HOME=/opt/claude bash -c 'curl -fsSL https://claude.ai/install.sh | bash'
 chmod -R a+rX /opt/claude
@@ -156,6 +185,10 @@ SH
 
 # Oh My Pi: prebuilt binary, falling back to the npm package.
 RUN bash -euo pipefail <<'SH'
+if [ "$SLIM" = 1 ]; then
+  echo "SLIM=1: skipping"
+  exit 0
+fi
 mkdir -p /opt/omp
 if HOME=/opt/omp sh -c 'curl -fsSL https://omp.sh/install | sh -s -- --binary' \
     && install -m 0755 /opt/omp/.local/bin/omp /usr/local/bin/omp; then
@@ -188,28 +221,45 @@ SH
 COPY skel/ /opt/agentbox/skel/
 COPY t3-settings.json /opt/agentbox/t3-settings.json
 COPY bin/workspace-init /opt/agentbox/bin/workspace-init
+COPY env.sh /opt/agentbox/env.sh
 RUN bash -euo pipefail <<'SH'
 chmod 0755 /opt/agentbox/bin/workspace-init
+chmod 0644 /opt/agentbox/env.sh
+# Image-owned hooks: login shells via profile.d, interactive non-login bash via bash.bashrc.
+cat > /etc/profile.d/agentbox.sh <<'EOF'
+[ -r /opt/agentbox/env.sh ] && . /opt/agentbox/env.sh
+EOF
+chmod 0644 /etc/profile.d/agentbox.sh
+printf '\n# AgentBox environment\n[ -r /opt/agentbox/env.sh ] && . /opt/agentbox/env.sh\n' >> /etc/bash.bashrc
 find /opt/agentbox/skel -type d -exec chmod 0755 {} +
 find /opt/agentbox/skel -type f -exec chmod 0644 {} +
 SH
 
-# Resolved tool versions, recorded for the admin image list.
+# Resolved tool versions, recorded for the admin image list and the toolchain manifest.
 RUN bash -euo pipefail <<'SH'
 first() { "$@" 2>&1 | head -n1; }
+# Only record what is present: a slim image has no node, codex, claude or omp.
+have() { command -v "$1" >/dev/null 2>&1 && first "$@" --version || true; }
+. /etc/os-release
+slim=false
+[ "$SLIM" = 1 ] && slim=true
 jq -n \
   --slurpfile t3src /opt/agentbox/t3-source.json \
   --arg t3 "$(first t3 --version)" \
-  --arg node "$(node --version)" \
+  --arg node "$(command -v node >/dev/null && node --version || true)" \
   --arg codeServer "$(code-server --version 2>&1 | grep -E '^[0-9]' | head -n1)" \
-  --arg codex "$(first codex --version)" \
-  --arg claude "$(first claude --version)" \
-  --arg omp "$(first omp --version)" \
+  --arg codex "$(have codex)" \
+  --arg claude "$(have claude)" \
+  --arg omp "$(have omp)" \
   --arg gh "$(first gh --version)" \
   --arg uv "$(first uv --version)" \
+  --arg mise "$(first mise --version)" \
+  --arg abi "${ID}-${VERSION_ID}" \
+  --argjson slim "$slim" \
   '{t3: {ref: $t3src[0].ref, commit: $t3src[0].commit, version: $t3},
     node: $node, "code-server": $codeServer, codex: $codex, claude: $claude,
-    omp: $omp, gh: $gh, uv: $uv}' > /opt/agentbox/versions.json
+    omp: $omp, gh: $gh, uv: $uv, mise: $mise, toolchainAbi: $abi, envVersion: 1, slim: $slim}
+   | with_entries(select(.value != ""))' > /opt/agentbox/versions.json
 rm /opt/agentbox/t3-source.json
 cat /opt/agentbox/versions.json
 SH

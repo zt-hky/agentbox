@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { parseImageManifest } from "@agentbox/core/toolchain";
 import { db } from "@agentbox/db/client";
 import { PageHeader } from "@/components/page-header";
 import { imageOption } from "@/lib/admin/image-view";
@@ -14,13 +15,15 @@ export const dynamic = "force-dynamic";
 export default async function AdminImagesPage() {
   await requireAdmin();
   const { rows, live } = await loadImageOverview(db);
-  const data: ImageRow[] = rows.map(({ image: r, usage, deleteQueued, lastDeleteError }) => ({
+  const data: ImageRow[] = rows.map(({ image: r, gate, usage, deleteQueued, lastDeleteError }) => ({
     ...imageOption(r),
     buildLog: tailLog(r.buildLog),
     overrideReason: r.overrideReason,
     scan: parseScanSummary(r.scanSummary),
     versions: extractVersions(r.buildLog),
     rootfsPresent: r.rootfsPath !== null,
+    gate,
+    slim: parseImageManifest(r.manifest)?.slim ?? false,
     usage,
     deleteQueued,
     lastDeleteError,

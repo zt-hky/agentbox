@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildArgv,
   envFileContent,
   logToFileArgv,
   podmanRunArgv,
@@ -144,5 +145,25 @@ describe("transport and helpers", () => {
     const a = logToFileArgv("/l/x.log", ["podman", "build", "."]);
     expect(a.slice(-4)).toEqual(["/l/x.log", "podman", "build", "."]);
     expect(a.slice(0, 3)[1]).toBe("-c");
+  });
+
+  it("passes SLIM to podman build", () => {
+    const full = buildArgv("main", "repo:1", "/ctx");
+    const slim = buildArgv("main", "repo:1", "/ctx", true);
+    expect(full).toEqual([
+      "podman",
+      "build",
+      "--pull=always",
+      "--no-cache",
+      "--build-arg",
+      "T3_REF=main",
+      "--build-arg",
+      "SLIM=0",
+      "-t",
+      "repo:1",
+      "/ctx",
+    ]);
+    expect(slim).toContain("SLIM=1");
+    expect(slim).not.toContain("SLIM=0");
   });
 });

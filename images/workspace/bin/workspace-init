@@ -6,8 +6,10 @@
 set -euo pipefail
 
 export HOME=/workspace/home
-export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
 AGENTBOX_DIR=/opt/agentbox
+# Image-owned environment: PATH farm (~/.agentbox/bin), mise and npm prefixes.
+# shellcheck source=/dev/null
+. "$AGENTBOX_DIR/env.sh"
 
 mkdir -p "$HOME" /workspace/projects "$HOME/.t3/userdata" "$HOME/.local/share/code-server/extensions"
 
@@ -18,6 +20,28 @@ if [[ ! -e "$HOME/.agentbox-seeded" ]]; then
   fi
   : > "$HOME/.agentbox-seeded"
 fi
+
+# One-shot, idempotent: workspaces seeded before PATH discovery pinned the Oh My Pi provider to
+# /usr/local/bin/omp. Drop only that key (and the instance when nothing else is left in it) so T3
+# finds `omp` by name; every other user edit stays untouched.
+migrate_t3_settings() {
+  local f="$HOME/.t3/userdata/settings.json" tmp
+  [[ -f "$f" ]] || return 0
+  jq -e '(.providerInstances.ohmypi.config.binaryPath? // null) == "/usr/local/bin/omp"' "$f" >/dev/null 2>&1 || return 0
+  tmp="$(mktemp "$f.XXXXXX")" || return 0
+  if jq '
+      del(.providerInstances.ohmypi.config.binaryPath)
+      | if (.providerInstances.ohmypi.config == {})
+           and ((.providerInstances.ohmypi | keys) - ["driver", "config"] == [])
+        then del(.providerInstances.ohmypi) else . end
+    ' "$f" > "$tmp" 2>/dev/null; then
+    chmod --reference="$f" "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$f"
+  else
+    rm -f "$tmp"
+  fi
+}
+migrate_t3_settings
 
 start_t3() {
   t3 serve --host 0.0.0.0 --port 3773 --base-dir "$HOME/.t3" --no-browser &

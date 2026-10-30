@@ -1,10 +1,20 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { auditLog, images, jobs, workspaces } from "@agentbox/db/schema";
+import {
+  auditLog,
+  images,
+  jobs,
+  toolchainRuns,
+  workspaceTools,
+  workspaces,
+} from "@agentbox/db/schema";
 import {
   activateImageWithMove,
   bulkMoveWorkspaces,
+  evaluateWorkspaceGates,
+  loadImageOverview,
   requestImageDelete,
+  requestWorkspaceReconciles,
   setWorkspaceImage,
 } from "../lib/admin/images-ops";
 import { UserError } from "../lib/errors";
@@ -28,6 +38,7 @@ beforeAll(async () => {
 afterAll(() => t.close());
 beforeEach(async () => {
   await t.db.delete(jobs);
+  await t.db.delete(toolchainRuns);
   await t.db.delete(workspaces);
   await t.db.delete(images);
 });
@@ -279,5 +290,175 @@ describe("requestImageDelete", () => {
       .insert(jobs)
       .values({ type: "build_image", payload: { imageRowId: b.id, t3Ref: "x" } });
     await rejects(requestImageDelete(t.db, actor(), b.id), /build is running/);
+  });
+});
+
+describe("toolchain image gate", () => {
+  const SLIM = {
+    mise: "2026.10.23",
+    toolchainAbi: "ubuntu-26.04",
+    envVersion: 1,
+    slim: true,
+    baked: [],
+  };
+  const FULL = { ...SLIM, slim: false, baked: ["node"] };
+  const C = "c".repeat(64);
+
+  /** A workspace whose toolchain finished: node managed, reconciled. */
+  const reconciled = { toolchainReconciledAt: new Date(), toolchainAbi: "ubuntu-26.04" };
+  async function addTool(
+    wsId: string,
+    extra: Partial<typeof workspaceTools.$inferInsert> = {},
+  ): Promise<void> {
+    await t.db.insert(workspaceTools).values({
+      workspaceId: wsId,
+      toolId: "node",
+      state: "idle",
+      installedVersion: "24.1.0",
+      backend: "core:node",
+      ...extra,
+    });
+  }
+
+  it("blocks a slim image for a workspace that never reconciled, naming the reason", async () => {
+    await seedImage("active", A, { manifest: FULL });
+    const slim = await seedImage("ready", B, { manifest: SLIM });
+    const ws = await seedWs("sleeping", { imageId: A });
+    await rejects(
+      activateImageWithMove(t.db, actor(), {
+        imageRowId: slim.id,
+        overrideReason: null,
+        moveMode: "none",
+      }),
+      new RegExp(`${ws.slug}: No toolchain reconcile has succeeded yet`),
+    );
+    expect((await t.db.select().from(images).where(eq(images.id, slim.id)))[0]!.status).toBe(
+      "ready",
+    );
+  });
+
+  it("blocks when the last reconcile left a failed tool, allows after success", async () => {
+    await seedImage("active", A, { manifest: FULL });
+    const slim = await seedImage("ready", B, { manifest: SLIM });
+    const ws = await seedWs("sleeping", { imageId: A, ...reconciled });
+    await addTool(ws.id, { state: "failed", installedVersion: null, backend: null });
+    const input = { imageRowId: slim.id, overrideReason: null, moveMode: "none" as const };
+    await rejects(activateImageWithMove(t.db, actor(), input), /node failed to install/);
+    await t.db.update(workspaceTools).set({
+      state: "idle",
+      installedVersion: "24.1.0",
+      backend: "core:node",
+    });
+    await activateImageWithMove(t.db, actor(), input);
+    expect((await t.db.select().from(images).where(eq(images.id, slim.id)))[0]!.status).toBe(
+      "active",
+    );
+  });
+
+  it("blocks when a toolchain change is not applied yet", async () => {
+    const slim = await seedImage("ready", B, { manifest: SLIM });
+    const ws = await seedWs("sleeping", {
+      ...reconciled,
+      toolchainGeneration: 3,
+      toolchainAppliedGeneration: 2,
+    });
+    await addTool(ws.id);
+    expect(await evaluateWorkspaceGates(t.db, slim)).toEqual([
+      { slug: ws.slug, reasons: ["A toolchain change has not been applied yet."] },
+    ]);
+  });
+
+  it("follower rule: a failing follower blocks activation even with moveMode none; a pinned one does not", async () => {
+    await seedImage("active", A);
+    const slim = await seedImage("ready", B, { manifest: SLIM });
+    const other = await seedImage("ready", C);
+    const pinned = await seedWs("sleeping", { imageId: C, pinnedImageId: other.id });
+    const input = { imageRowId: slim.id, overrideReason: null, moveMode: "none" as const };
+    await activateImageWithMove(t.db, actor(), input);
+    await t.db.update(images).set({ status: "ready" }).where(eq(images.id, slim.id));
+    await t.db.update(images).set({ status: "active" }).where(eq(images.id, other.id));
+    const follower = await seedWs("sleeping", { imageId: C });
+    await rejects(activateImageWithMove(t.db, actor(), input), new RegExp(follower.slug));
+    // moveMode all unpins the pinned workspace, so it joins the check.
+    const err = await activateImageWithMove(t.db, actor(), { ...input, moveMode: "all" }).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(err?.message).toContain(pinned.slug);
+    expect(err?.message).toContain(follower.slug);
+  });
+
+  it("blocks pin and bulk-move to a slim image with reasons, and allows ready workspaces", async () => {
+    await seedImage("active", A);
+    const slim = await seedImage("ready", B, { manifest: SLIM });
+    const bad = await seedWs("running", { imageId: A });
+    const good = await seedWs("sleeping", { imageId: A, ...reconciled });
+    await addTool(good.id);
+    await rejects(setWorkspaceImage(t.db, actor(), bad.slug, slim.id), /No toolchain reconcile/);
+    await rejects(
+      bulkMoveWorkspaces(t.db, actor(), {
+        imageRowId: slim.id,
+        slugs: [bad.slug, good.slug],
+        mode: "pin",
+      }),
+      new RegExp(`${bad.slug}: `),
+    );
+    expect((await wsRow(good.id)).pinnedImageId).toBeNull();
+    expect((await wsRow(bad.id)).pinnedImageId).toBeNull();
+    expect(await restarts()).toHaveLength(0);
+    await setWorkspaceImage(t.db, actor(), good.slug, slim.id);
+    expect((await wsRow(good.id)).pinnedImageId).toBe(slim.id);
+  });
+
+  it("blocks an ABI downgrade, including for non-slim images with a manifest", async () => {
+    const older = await seedImage("ready", B, {
+      manifest: { ...FULL, toolchainAbi: "ubuntu-24.04" },
+    });
+    const ws = await seedWs("sleeping", { toolchainAbi: "ubuntu-26.04" });
+    await rejects(setWorkspaceImage(t.db, actor(), ws.slug, older.id), /ubuntu-24\.04/);
+  });
+
+  it("leaves non-slim images and images without a manifest unaffected", async () => {
+    await seedImage("active", A);
+    const full = await seedImage("ready", B, { manifest: FULL });
+    const legacy = await seedImage("ready", C);
+    const ws = await seedWs("sleeping", { imageId: A, toolchainAbi: "ubuntu-26.04" });
+    expect(await evaluateWorkspaceGates(t.db, full)).toEqual([]);
+    expect(await evaluateWorkspaceGates(t.db, legacy)).toEqual([]);
+    await setWorkspaceImage(t.db, actor(), ws.slug, full.id);
+    await setWorkspaceImage(t.db, actor(), ws.slug, legacy.id);
+    await activateImageWithMove(t.db, actor(), {
+      imageRowId: full.id,
+      overrideReason: null,
+      moveMode: "none",
+    });
+  });
+
+  it("loadImageOverview reports per-image gate failures", async () => {
+    const slim = await seedImage("ready", B, { manifest: SLIM });
+    const legacy = await seedImage("ready", C);
+    const ws = await seedWs("sleeping");
+    const { rows } = await loadImageOverview(t.db);
+    expect(rows.find((r) => r.image.id === slim.id)!.gate).toEqual([
+      { slug: ws.slug, reasons: ["No toolchain reconcile has succeeded yet."] },
+    ]);
+    expect(rows.find((r) => r.image.id === legacy.id)!.gate).toEqual([]);
+  });
+
+  it("Reconcile now enqueues a reconcile job and audits it per workspace", async () => {
+    const ws = await seedWs("sleeping");
+    expect(await requestWorkspaceReconciles(t.db, actor(), [ws.slug])).toEqual({
+      queued: [ws.slug],
+    });
+    expect(
+      (await t.db.select().from(jobs)).filter((j) => j.type === "reconcile_toolchain"),
+    ).toHaveLength(1);
+    expect((await wsRow(ws.id)).toolchainGeneration).toBe(1);
+    const audits = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "toolchain.reconcile"));
+    expect(audits).toHaveLength(1);
+    await rejects(requestWorkspaceReconciles(t.db, actor(), []), /at least one/);
   });
 });

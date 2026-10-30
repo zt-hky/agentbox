@@ -1,6 +1,7 @@
-import { open, readdir, rename, rm, mkdir, stat } from "node:fs/promises";
+import { open, readFile, readdir, rename, rm, mkdir, stat } from "node:fs/promises";
 import type { BuildImageRequest, BuildImageResponse } from "@agentbox/core/agent-api";
 import { imageIdSchema } from "@agentbox/core/agent-api";
+import { manifestFromVersions } from "@agentbox/core/toolchain";
 import { buildArgv, logToFileArgv, rootfsPath, transportPrefix, trivyArgv } from "./argv.ts";
 import {
   BUILD_CONTEXT,
@@ -29,6 +30,18 @@ const exists = (p: string) =>
     () => false,
   );
 
+/** The image's own `versions.json`, parsed into the stored manifest; null when absent or unreadable. */
+async function readManifest(rootfsDir: string) {
+  try {
+    const raw: unknown = JSON.parse(
+      await readFile(`${rootfsDir}/opt/agentbox/versions.json`, "utf8"),
+    );
+    return manifestFromVersions(raw);
+  } catch {
+    return null;
+  }
+}
+
 export async function buildImage(req: BuildImageRequest): Promise<BuildImageResponse> {
   if (building) throw new HttpError(409, `image build ${building} is already running`);
   building = req.jobId;
@@ -53,7 +66,7 @@ export async function buildImage(req: BuildImageRequest): Promise<BuildImageResp
     await bq(["mkdir", "-p", BUILD_LOG_DIR, TRIVY_CACHE_DIR]);
     await bq(["sh", "-c", ': > "$1"', "sh", logPath]);
 
-    await bq(logToFileArgv(logPath, buildArgv(req.t3Ref, tag, BUILD_CONTEXT)), {
+    await bq(logToFileArgv(logPath, buildArgv(req.t3Ref, tag, BUILD_CONTEXT, req.slim === true)), {
       timeoutMs: BUILD_TIMEOUT_MS,
     });
     const rawId = (
@@ -92,7 +105,8 @@ export async function buildImage(req: BuildImageRequest): Promise<BuildImageResp
     await note(`scan summary: ${JSON.stringify(scanSummary)}`);
     createdDir = null;
     logEvent({ event: "build_done", jobId, imageId, durationMs: Date.now() - t0 });
-    return { imageId, scanSummary, logPath };
+    const manifest = await readManifest(dir);
+    return { imageId, scanSummary, logPath, ...(manifest ? { manifest } : {}) };
   } catch (e) {
     await note(`build failed: ${errMessage(e).slice(0, 500)}`).catch(() => undefined);
     if (createdDir) await rm(createdDir, { recursive: true, force: true });

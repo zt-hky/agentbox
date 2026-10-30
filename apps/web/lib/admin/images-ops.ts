@@ -1,10 +1,16 @@
-import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import {
   CONTAINER_UP_STATUSES,
   WORKSPACE_GONE_STATUSES,
   isImageUsable,
 } from "@agentbox/core/images";
-import { images, jobs, workspaces } from "@agentbox/db/schema";
+import {
+  evaluateImageGate,
+  parseImageManifest,
+  type GateWorkspace,
+} from "@agentbox/core/toolchain";
+import { requestReconcile } from "@agentbox/db/toolchain";
+import { images, jobs, workspaceTools, workspaces } from "@agentbox/db/schema";
 import { writeAudit } from "../audit";
 import type { Db, DbLike } from "../db-types";
 import { UserError } from "../errors";
@@ -41,6 +47,8 @@ export interface ImageUsage {
 
 export interface ImageOverviewRow {
   image: ImageRow;
+  /** Live workspaces this image's toolchain gate rejects (empty for images without a gate). */
+  gate: GateFailure[];
   usage: ImageUsage;
   deleteQueued: boolean;
   lastDeleteError: string | null;
@@ -52,6 +60,93 @@ export interface WorkspaceImageRef {
   /** Podman id it last started with. */
   imageId: string | null;
   pinnedImageId: string | null;
+}
+
+export interface GateFailure {
+  slug: string;
+  reasons: string[];
+}
+
+/** Gate inputs of live workspaces (their tools and toolchain columns), optionally limited to `slugs`. */
+async function loadGateWorkspaces(
+  database: DbLike,
+  slugs?: readonly string[],
+): Promise<GateWorkspace[]> {
+  if (slugs && slugs.length === 0) return [];
+  const where = slugs
+    ? and(notInArray(workspaces.status, goneStatuses), inArray(workspaces.slug, [...slugs]))
+    : notInArray(workspaces.status, goneStatuses);
+  const rows = await database
+    .select({
+      id: workspaces.id,
+      slug: workspaces.slug,
+      toolchainGeneration: workspaces.toolchainGeneration,
+      toolchainAppliedGeneration: workspaces.toolchainAppliedGeneration,
+      toolchainReconciledAt: workspaces.toolchainReconciledAt,
+      toolchainAbi: workspaces.toolchainAbi,
+    })
+    .from(workspaces)
+    .where(where)
+    .orderBy(workspaces.slug);
+  if (rows.length === 0) return [];
+  const tools = await database
+    .select({
+      workspaceId: workspaceTools.workspaceId,
+      toolId: workspaceTools.toolId,
+      desired: workspaceTools.desired,
+      state: workspaceTools.state,
+      installedVersion: workspaceTools.installedVersion,
+      backend: workspaceTools.backend,
+    })
+    .from(workspaceTools)
+    .where(
+      inArray(
+        workspaceTools.workspaceId,
+        rows.map((r) => r.id),
+      ),
+    );
+  return rows.map(({ id, ...ws }) => ({
+    ...ws,
+    tools: tools.filter((t) => t.workspaceId === id),
+  }));
+}
+
+function gateFailures(image: Pick<ImageRow, "manifest">, wss: readonly GateWorkspace[]) {
+  const manifest = parseImageManifest(image.manifest);
+  if (!manifest) return [];
+  const out: GateFailure[] = [];
+  for (const ws of wss) {
+    const verdict = evaluateImageGate(manifest, ws);
+    if (!verdict.ok) out.push({ slug: ws.slug, reasons: verdict.reasons });
+  }
+  return out;
+}
+
+/**
+ * Live workspaces (or just `slugs`) that the image's manifest gate rejects: a slim image needs a
+ * completed toolchain reconcile, and an image with an older ABI than the installed toolchain is
+ * refused. Images without a manifest (built before the toolchain) are never gated.
+ */
+export async function evaluateWorkspaceGates(
+  database: DbLike,
+  image: Pick<ImageRow, "manifest">,
+  slugs?: readonly string[],
+): Promise<GateFailure[]> {
+  if (!parseImageManifest(image.manifest)) return [];
+  return gateFailures(image, await loadGateWorkspaces(database, slugs));
+}
+
+const MAX_GATE_LISTED = 8;
+
+function assertGate(image: ImageRow, failures: GateFailure[], what: string): void {
+  if (failures.length === 0) return;
+  const listed = failures
+    .slice(0, MAX_GATE_LISTED)
+    .map((f) => `${f.slug}: ${f.reasons.join(" ")}`)
+    .join(" | ");
+  const more =
+    failures.length > MAX_GATE_LISTED ? ` (+${failures.length - MAX_GATE_LISTED} more)` : "";
+  throw new UserError(`Cannot ${what} image ${image.t3Ref}. ${listed}${more}`);
 }
 
 /** Live (not deleting/deleted) workspaces with the fields needed for image decisions. */
@@ -126,11 +221,15 @@ export async function loadImageOverview(
   const lastError = new Map<string, string | null>();
   for (const f of failedDeletes)
     if (!lastError.has(f.imageRowId)) lastError.set(f.imageRowId, f.lastError);
+  const gateWorkspaces = imgs.some((i) => parseImageManifest(i.manifest))
+    ? await loadGateWorkspaces(database)
+    : [];
   const rows = imgs.map((image) => {
     const usage = usageOf(image, live);
     const deleteQueued = pending.has(image.id);
     return {
       image,
+      gate: gateFailures(image, gateWorkspaces),
       usage,
       deleteQueued,
       lastDeleteError: deleteQueued ? null : (lastError.get(image.id) ?? null),
@@ -221,6 +320,26 @@ export async function activateImageWithMove(
     }
     if (await hasPendingDelete(tx, row.id)) throw new UserError("That image is being deleted");
     const { overrideReason } = activationOverride(row.scanSummary, input.overrideReason);
+    // Followers pick the active image up on their next start whatever the move mode; pinned
+    // workspaces only join them when moveMode "all" unpins them.
+    const affected = await tx
+      .select({ slug: workspaces.slug })
+      .from(workspaces)
+      .where(
+        and(
+          notInArray(workspaces.status, goneStatuses),
+          input.moveMode === "all" ? undefined : isNull(workspaces.pinnedImageId),
+        ),
+      );
+    assertGate(
+      row,
+      await evaluateWorkspaceGates(
+        tx,
+        row,
+        affected.map((w) => w.slug),
+      ),
+      "activate",
+    );
     await tx.update(images).set({ status: "ready" }).where(eq(images.status, "active"));
     await tx.update(images).set({ status: "active", overrideReason }).where(eq(images.id, row.id));
 
@@ -281,6 +400,13 @@ export async function setWorkspaceImage(
     } else {
       target = (await tx.select().from(images).where(eq(images.status, "active")).limit(1))[0];
     }
+    if (target) {
+      assertGate(
+        target,
+        await evaluateWorkspaceGates(tx, target, [ws.slug]),
+        imageRowId ? "pin to" : "follow",
+      );
+    }
     await tx.update(workspaces).set({ pinnedImageId: imageRowId }).where(eq(workspaces.id, ws.id));
     const restart =
       ws.status === "running" && target?.imageId != null && ws.imageId !== target.imageId;
@@ -333,6 +459,11 @@ export async function bulkMoveWorkspaces(
       .where(inArray(workspaces.slug, slugs))
       .for("update");
     if (rows.length !== slugs.length) throw new UserError("A selected workspace no longer exists");
+    assertGate(
+      image,
+      await evaluateWorkspaceGates(tx, image, slugs),
+      input.mode === "pin" ? "pin to" : "follow",
+    );
     const bad = rows.find(
       (w) => (goneStatuses as string[]).includes(w.status) || w.status === "provisioning",
     );
@@ -439,4 +570,31 @@ export async function requestImageDelete(
     });
     return { queued: !noFiles };
   });
+}
+
+/** Enqueue a toolchain reconcile for each live workspace in `slugs` (admin "Reconcile now"). */
+export async function requestWorkspaceReconciles(
+  database: Db,
+  actor: ImageActor,
+  slugs: string[],
+): Promise<{ queued: string[] }> {
+  if (slugs.length === 0) throw new UserError("Select at least one workspace");
+  const rows = await database
+    .select({ id: workspaces.id, slug: workspaces.slug })
+    .from(workspaces)
+    .where(and(inArray(workspaces.slug, slugs), notInArray(workspaces.status, goneStatuses)));
+  const queued: string[] = [];
+  for (const ws of rows) {
+    await requestReconcile(database, { workspaceId: ws.id, trigger: "admin" });
+    await writeAudit(database, {
+      actorId: actor.adminId,
+      action: "toolchain.reconcile",
+      targetType: "workspace",
+      targetId: ws.id,
+      metadata: { slug: ws.slug, trigger: "admin" },
+      ip: actor.ip,
+    });
+    queued.push(ws.slug);
+  }
+  return { queued };
 }

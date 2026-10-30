@@ -1,11 +1,3 @@
 {
-  "enableProviderUpdateChecks": false,
-  "providerInstances": {
-    "ohmypi": {
-      "driver": "ohmypi",
-      "config": {
-        "binaryPath": "/usr/local/bin/omp"
-      }
-    }
-  }
+  "enableProviderUpdateChecks": false
 }
