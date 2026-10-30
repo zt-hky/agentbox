@@ -159,6 +159,15 @@ export interface RackRow {
   memBytes: number | null;
   diskBytes: number | null;
   limits: PlanLimits | null;
+  image: RackImage | null;
+}
+
+/** Compact image info for a rack row: what it last started with and how that compares to active. */
+export interface RackImage {
+  /** Short podman id of the image it last started with. */
+  shortId: string | null;
+  t3Ref: string | null;
+  state: "active" | "outdated" | "pinned" | "pinned-pending" | "unknown";
 }
 
 export function buildRackRow(input: {
@@ -172,6 +181,7 @@ export function buildRackRow(input: {
   plan: PlanLimits | null;
   host: HostFacts | undefined;
   cpuCores: number | null;
+  image?: RackImage | null;
 }): RackRow {
   const running = input.status === "running";
   const h = input.host;
@@ -190,6 +200,7 @@ export function buildRackRow(input: {
     limits: input.plan
       ? { ...input.plan, diskBytes: h?.diskLimitBytes || input.plan.diskBytes }
       : null,
+    image: input.image ?? null,
   };
 }
 

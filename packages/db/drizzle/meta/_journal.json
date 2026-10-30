@@ -50,6 +50,13 @@
       "when": 1793293988670,
       "tag": "0006_requested_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793332370321,
+      "tag": "0007_workspace_pinned_image",
+      "breakpoints": true
     }
   ]
 }

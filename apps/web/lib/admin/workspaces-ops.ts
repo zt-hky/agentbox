@@ -2,6 +2,7 @@ import { and, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
 import { fetchLogsPayloadSchema } from "@agentbox/core/job-contracts";
 import {
   hostStats,
+  images,
   jobs,
   plans,
   subscriptions,
@@ -12,6 +13,7 @@ import {
 import { writeAudit } from "../audit";
 import type { DbLike } from "../db-types";
 import { UserError } from "../errors";
+import { workspaceImageState } from "./image-view";
 import { STATS_MAX_AGE_MS } from "../live-stats";
 import {
   buildRackRow,
@@ -199,7 +201,7 @@ export async function loadRack(
   now: Date = new Date(),
   filter: { userId?: string } = {},
 ): Promise<RackRow[]> {
-  const [rows, stats, samples] = await Promise.all([
+  const [rows, stats, samples, imageRows] = await Promise.all([
     database
       .select({ w: workspaces, email: user.email, plan: plans })
       .from(workspaces)
@@ -219,6 +221,14 @@ export async function loadRack(
       .from(usageSamples)
       .where(gt(usageSamples.ts, new Date(now.getTime() - STATS_MAX_AGE_MS)))
       .orderBy(usageSamples.workspaceId, desc(usageSamples.ts)),
+    database
+      .select({
+        id: images.id,
+        imageId: images.imageId,
+        t3Ref: images.t3Ref,
+        status: images.status,
+      })
+      .from(images),
   ]);
   const index = indexHostStats(stats[0]?.payload, stats[0]?.updatedAt, now);
   const sampleByWs = new Map(samples.map((s) => [s.workspaceId, s]));
@@ -234,6 +244,11 @@ export async function loadRack(
       plan: plan ? planLimits(plan) : null,
       host: index?.byWorkspace.get(w.slug),
       cpuCores: cpuCoresFromFreshSample(sampleByWs.get(w.id), now),
+      image: {
+        shortId: w.imageId ? w.imageId.slice(0, 12) : null,
+        t3Ref: imageRows.find((i) => i.imageId !== null && i.imageId === w.imageId)?.t3Ref ?? null,
+        state: workspaceImageState(w, imageRows),
+      },
     }),
   );
 }

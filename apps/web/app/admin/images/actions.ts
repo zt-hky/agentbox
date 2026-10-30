@@ -1,15 +1,22 @@
 "use server";
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@agentbox/db/client";
+import { wsSlugSchema } from "@agentbox/core/agent-api";
 import { images, jobs } from "@agentbox/db/schema";
 import { guard } from "@/lib/action";
 import { adminContext } from "@/lib/admin";
 import { writeAudit } from "@/lib/audit";
 import { UserError } from "@/lib/errors";
-import { activationOverride, tailLog } from "@/lib/images";
+import {
+  activateImageWithMove,
+  bulkMoveWorkspaces,
+  requestImageDelete,
+  type MoveMode,
+} from "@/lib/admin/images-ops";
+import { tailLog } from "@/lib/images";
 import { t3RefSchema } from "@/lib/schemas";
 
 const idSchema = z.uuid();
@@ -68,36 +75,25 @@ export async function pollImage(imageRowId: string) {
   });
 }
 
-export async function activateImage(imageRowId: string, overrideReason: string | null) {
+export async function activateImage(
+  imageRowId: string,
+  overrideReason: string | null,
+  moveMode: MoveMode = "none",
+) {
   return guard(async () => {
     const { admin, ip } = await adminContext();
-    await db.transaction(async (tx) => {
-      const row = (
-        await tx
-          .select()
-          .from(images)
-          .where(eq(images.id, idSchema.parse(imageRowId)))
-          .for("update")
-      )[0];
-      if (!row) throw new UserError("Image not found");
-      if (row.status !== "ready" || !row.imageId)
-        throw new UserError("Only a ready image can be activated");
-      const { overrideReason: stored } = activationOverride(row.scanSummary, overrideReason);
-      await tx.update(images).set({ status: "ready" }).where(eq(images.status, "active"));
-      await tx
-        .update(images)
-        .set({ status: "active", overrideReason: stored })
-        .where(eq(images.id, row.id));
-      await writeAudit(tx, {
-        actorId: admin.id,
-        action: "image.activate",
-        targetType: "image",
-        targetId: row.id,
-        metadata: { imageId: row.imageId, overrideReason: stored },
-        ip,
-      });
-    });
+    const result = await activateImageWithMove(
+      db,
+      { adminId: admin.id, ip },
+      {
+        imageRowId: idSchema.parse(imageRowId),
+        overrideReason,
+        moveMode: z.enum(["none", "running", "all"]).parse(moveMode),
+      },
+    );
     revalidatePath("/admin/images");
+    revalidatePath("/admin/workspaces");
+    return result;
   });
 }
 
@@ -128,48 +124,38 @@ export async function retireImage(imageRowId: string) {
   });
 }
 
-/**
- * Delete an image's rootfs. Ready/retired rows enqueue `delete_image` (the worker marks the row
- * retired). Failed rows never produced a rootfs, so the row itself is removed.
- */
+/** Delete an image's files (or the row, when it never had any); see `requestImageDelete`. */
 export async function deleteImage(imageRowId: string) {
   return guard(async () => {
     const { admin, ip } = await adminContext();
-    await db.transaction(async (tx) => {
-      const id = idSchema.parse(imageRowId);
-      const row = (await tx.select().from(images).where(eq(images.id, id)).for("update"))[0];
-      if (!row) throw new UserError("Image not found");
-      if (row.status === "active")
-        throw new UserError("Activate another image before deleting the active one");
-      if (row.status === "building") throw new UserError("A build is still running");
-      if (row.status === "failed" && !row.imageId) {
-        await tx.delete(images).where(eq(images.id, row.id));
-      } else {
-        const queued = await tx
-          .select({ id: jobs.id })
-          .from(jobs)
-          .where(
-            and(
-              eq(jobs.type, "delete_image"),
-              inArray(jobs.status, ["queued", "running"]),
-              sql`${jobs.payload}->>'imageRowId' = ${row.id}`,
-            ),
-          )
-          .limit(1);
-        if (queued.length > 0) throw new UserError("Deletion is already queued");
-        await tx
-          .insert(jobs)
-          .values({ type: "delete_image", workspaceId: null, payload: { imageRowId: row.id } });
-      }
-      await writeAudit(tx, {
-        actorId: admin.id,
-        action: "image.delete",
-        targetType: "image",
-        targetId: row.id,
-        metadata: { imageId: row.imageId, status: row.status },
-        ip,
-      });
-    });
+    const result = await requestImageDelete(
+      db,
+      { adminId: admin.id, ip },
+      idSchema.parse(imageRowId),
+    );
     revalidatePath("/admin/images");
+    return result;
+  });
+}
+
+/** Pin many workspaces to one image (or have them follow the active one) in one transaction. */
+export async function moveWorkspacesToImage(
+  imageRowId: string,
+  slugs: string[],
+  mode: "pin" | "follow",
+) {
+  return guard(async () => {
+    const { admin, ip } = await adminContext();
+    const input = z
+      .object({
+        imageRowId: z.uuid(),
+        slugs: z.array(wsSlugSchema).max(500),
+        mode: z.enum(["pin", "follow"]),
+      })
+      .parse({ imageRowId, slugs, mode });
+    const result = await bulkMoveWorkspaces(db, { adminId: admin.id, ip }, input);
+    revalidatePath("/admin/images");
+    revalidatePath("/admin/workspaces");
+    return result;
   });
 }

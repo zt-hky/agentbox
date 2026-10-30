@@ -1,0 +1,2 @@
+ALTER TABLE "workspaces" ADD COLUMN "pinned_image_id" uuid;--> statement-breakpoint
+ALTER TABLE "workspaces" ADD CONSTRAINT "workspaces_pinned_image_id_images_id_fk" FOREIGN KEY ("pinned_image_id") REFERENCES "public"."images"("id") ON DELETE no action ON UPDATE no action;

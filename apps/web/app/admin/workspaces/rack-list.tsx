@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
 import { StatusLight, statusLabel } from "@/components/status-light";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,6 +28,31 @@ import {
 // Mirrors the grid in WorkspaceModule's row variant so the column labels line up with its cells.
 const HEADER_GRID =
   "md:grid-cols-[minmax(10rem,1.2fr)_minmax(8rem,1fr)_repeat(3,minmax(6rem,1fr))_auto]";
+
+const IMAGE_CHIP: Record<NonNullable<RackRow["image"]>["state"], string | null> = {
+  active: null,
+  outdated: "Outdated",
+  pinned: "Pinned",
+  "pinned-pending": "Pinned, pending",
+  unknown: null,
+};
+
+/** Short image id (plus ref on wide screens) with an Outdated/Pinned flag when it is not simply active. */
+function RackImageChip({ image }: { image: RackRow["image"] }) {
+  if (!image || !image.shortId) return null;
+  const flag = IMAGE_CHIP[image.state];
+  return (
+    <span
+      className="hidden items-center gap-1.5 text-meta text-muted-foreground lg:inline-flex"
+      title={image.t3Ref ? `${image.t3Ref} · ${image.shortId}` : image.shortId}
+    >
+      <span className="font-mono">{image.shortId.slice(0, 8)}</span>
+      {flag ? (
+        <Badge variant={image.state === "outdated" ? "destructive" : "outline"}>{flag}</Badge>
+      ) : null}
+    </span>
+  );
+}
 
 export function RackList({ rows, now }: { rows: RackRow[]; now: string }) {
   const [query, setQuery] = useState("");
@@ -145,7 +171,10 @@ export function RackList({ rows, now }: { rows: RackRow[]; now: string }) {
               live={{ cpuCores: r.cpuCores, memBytes: r.memBytes, diskBytes: r.diskBytes }}
               limits={r.limits}
               actions={
-                <AdminSleepButton slug={r.slug} status={r.status} ownerEmail={r.ownerEmail} />
+                <>
+                  <RackImageChip image={r.image} />
+                  <AdminSleepButton slug={r.slug} status={r.status} ownerEmail={r.ownerEmail} />
+                </>
               }
             />
           ))}

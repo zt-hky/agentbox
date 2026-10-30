@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
+import { isImageUsable } from "@agentbox/core/images";
 import { ports, tenantUid } from "@agentbox/core/slots";
 import { db } from "@agentbox/db/client";
 import {
   hostStats,
+  images,
   jobs,
   plans,
   subscriptions,
@@ -34,6 +36,7 @@ import {
   USAGE_RANGES,
   type JobView,
 } from "@/lib/admin/workspaces";
+import { imageOption, workspaceImageState } from "@/lib/admin/image-view";
 import { latestDiagnostics, loadUsageSeries, toJobView } from "@/lib/admin/workspaces-ops";
 import { baseDomain } from "@/lib/env";
 import { formatAgo, formatBytes, formatDateTime, formatDuration } from "@/lib/format";
@@ -97,6 +100,17 @@ export default async function AdminWorkspacePage({
         baseDomain: domain,
       }
     : null;
+
+  const imageRows =
+    tab === "manage" ? await db.select().from(images).orderBy(desc(images.createdAt)) : [];
+  const imageOptions = imageRows.map(imageOption);
+  const imagePanel = {
+    options: imageRows.filter((r) => isImageUsable(r)).map(imageOption),
+    current: imageOptions.find((i) => i.imageId !== null && i.imageId === w.imageId) ?? null,
+    currentImageId: w.imageId,
+    pinnedImageRowId: w.pinnedImageId,
+    state: workspaceImageState(w, imageOptions),
+  };
 
   return (
     <>
@@ -163,6 +177,7 @@ export default async function AdminWorkspacePage({
             ownerEmail={u.email}
             planName={plan?.name ?? null}
             recreate={recreate}
+            image={imagePanel}
           />
         </Section>
       )}

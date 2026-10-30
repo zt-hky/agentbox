@@ -232,7 +232,10 @@ export const workspaces = pgTable("workspaces", {
   slug: text("slug").notNull().unique(),
   slot: integer("slot").notNull().unique(),
   status: text("status", { enum: WORKSPACE_STATUSES }).notNull().default("provisioning"),
+  // Podman image id this workspace's container last started with (authoritative once started).
   imageId: text("image_id"),
+  // Admin pin: start from this image instead of the active one. Null = follow the active image.
+  pinnedImageId: uuid("pinned_image_id").references(() => images.id),
   identitySecretEnc: text("identity_secret_enc").notNull(),
   lastRequestAt: tstz("last_request_at"),
   lastActivityAt: tstz("last_activity_at"),

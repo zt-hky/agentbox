@@ -11,6 +11,7 @@ import { adminContext } from "@/lib/admin";
 import { writeAudit } from "@/lib/audit";
 import { UserError } from "@/lib/errors";
 import { enqueueWorkspaceJob } from "@/lib/jobs";
+import { setWorkspaceImage } from "@/lib/admin/images-ops";
 import { deleteWorkspaceAsAdmin, stopWorkspaceAsAdmin } from "@/lib/admin/workspace-lifecycle";
 import {
   enqueueDiagnostic,
@@ -122,4 +123,21 @@ export async function adminPollJob(slug: string, jobId: string): Promise<JobView
   if (!wsSlugSchema.safeParse(slug).success) return null;
   const ws = await findWorkspaceBySlug(db, slug);
   return ws ? readDiagnosticJob(db, ws, jobId) : null;
+}
+
+/** Pin a workspace to an image, or (null) make it follow the active image. */
+export async function adminSetWorkspaceImage(slug: string, imageRowId: string | null) {
+  return guard(async () => {
+    const { admin, ip } = await adminContext();
+    const result = await setWorkspaceImage(
+      db,
+      { adminId: admin.id, ip },
+      wsSlugSchema.parse(slug),
+      imageRowId === null ? null : z.uuid().parse(imageRowId),
+    );
+    revalidatePath(`/admin/workspaces/${slug}`);
+    revalidatePath("/admin/workspaces");
+    revalidatePath("/admin/images");
+    return result;
+  });
 }

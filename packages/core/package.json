@@ -13,7 +13,8 @@
     "./idle": "./src/idle.ts",
     "./agent-api": "./src/agent-api.ts",
     "./job-contracts": "./src/job-contracts.ts",
-    "./settings": "./src/settings.ts"
+    "./settings": "./src/settings.ts",
+    "./images": "./src/images.ts"
   },
   "scripts": {
     "test": "vitest run",

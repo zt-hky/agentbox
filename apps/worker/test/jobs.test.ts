@@ -468,6 +468,74 @@ describe("job handlers", () => {
     expect(img).toMatchObject({ status: "failed", buildLog: "step 1\nstep 2", imageId: null });
   });
 
+  it("start_workspace prefers the pinned image over the active one", async () => {
+    await activeImage();
+    const OTHER = "b".repeat(64);
+    const [pin] = await t.db
+      .insert(images)
+      .values({ imageId: OTHER, rootfsPath: "/r2", t3Ref: "old", status: "ready" })
+      .returning();
+    const w = await seedWorld(t.db, { status: "sleeping", workspace: { pinnedImageId: pin!.id } });
+    agent.on("POST /v1/workspaces/alice/start", () => ({
+      json: { cgroupPath: "c", startedAt: "now" },
+    }));
+    await enqueue("start_workspace", w.workspaceId);
+    await runAll();
+    expect(agent.callsTo("POST /v1/workspaces/alice/start")[0]!.body).toMatchObject({
+      imageId: OTHER,
+    });
+    expect(await ws(w.workspaceId)).toMatchObject({ status: "running", imageId: OTHER });
+    expect((await events(w.workspaceId))[0]!.details).toEqual({ imageId: OTHER, pinned: true });
+  });
+
+  it("start_workspace fails without retrying when the pinned image is unusable", async () => {
+    await activeImage();
+    const [pin] = await t.db
+      .insert(images)
+      .values({ imageId: "c".repeat(64), rootfsPath: null, t3Ref: "gone", status: "retired" })
+      .returning();
+    const w = await seedWorld(t.db, { status: "sleeping", workspace: { pinnedImageId: pin!.id } });
+    const id = await enqueue("start_workspace", w.workspaceId);
+    await runAll();
+    expect(await job(id)).toMatchObject({ status: "failed", attempts: 1 });
+    expect(agent.callsTo("POST /v1/workspaces/alice/start")).toHaveLength(0);
+    expect((await ws(w.workspaceId)).status).toBe("error");
+  });
+
+  it("delete_image refuses pinned images and images a running workspace uses; success clears rootfsPath", async () => {
+    const [row] = await t.db
+      .insert(images)
+      .values({ imageId: IMAGE_ID, rootfsPath: "/r", t3Ref: "main", status: "ready" })
+      .returning();
+    const w = await seedWorld(t.db, { workspace: { pinnedImageId: row!.id, status: "sleeping" } });
+    const id = await enqueue("delete_image", null, { imageRowId: row!.id });
+    await runAll();
+    expect(await job(id)).toMatchObject({ status: "failed", attempts: 1 });
+    expect((await job(id)).lastError).toMatch(/pinned by workspaces: alice/);
+
+    await t.db
+      .update(workspaces)
+      .set({ pinnedImageId: null, status: "running", imageId: IMAGE_ID });
+    await t.db.delete(jobs);
+    const id2 = await enqueue("delete_image", null, { imageRowId: row!.id });
+    await runAll();
+    expect((await job(id2)).lastError).toMatch(/in use by running workspaces: alice/);
+    expect(agent.calls).toHaveLength(0);
+
+    await t.db
+      .update(workspaces)
+      .set({ status: "sleeping" })
+      .where(eq(workspaces.id, w.workspaceId));
+    await t.db.delete(jobs);
+    await enqueue("delete_image", null, { imageRowId: row!.id });
+    await runAll();
+    expect(agent.callsTo(`DELETE /v1/images/${IMAGE_ID}`)).toHaveLength(1);
+    expect((await t.db.select().from(images))[0]).toMatchObject({
+      status: "retired",
+      rootfsPath: null,
+    });
+  });
+
   it("delete_image removes via the agent and retires the row; refuses the active image", async () => {
     const [row] = await t.db
       .insert(images)

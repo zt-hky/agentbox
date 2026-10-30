@@ -1,6 +1,11 @@
-import { and, asc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, lte, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { decrypt } from "@agentbox/core";
+import {
+  CONTAINER_UP_STATUSES,
+  WORKSPACE_GONE_STATUSES,
+  isImageUsable,
+} from "@agentbox/core/images";
 import {
   fetchLogsPayloadSchema,
   type FetchLogsResult,
@@ -142,6 +147,22 @@ async function tailBuildLog(ctx: Ctx, jobId: string, imageRowId: string): Promis
   }
 }
 
+/** The image a workspace starts from: its admin pin when set, otherwise the active image. */
+async function resolveStartImage(ctx: Ctx, ws: WorkspaceRow): Promise<{ imageId: string }> {
+  if (ws.pinnedImageId) {
+    const [pinned] = await ctx.db.select().from(images).where(eq(images.id, ws.pinnedImageId));
+    if (!pinned || !isImageUsable(pinned))
+      throw new NonRetryableError(
+        `pinned image is not usable (${pinned?.status ?? "missing"}); pick another image or follow the active one`,
+      );
+    return { imageId: pinned.imageId as string };
+  }
+  const [image] = await ctx.db.select().from(images).where(eq(images.status, "active"));
+  if (!image?.imageId)
+    throw new Error("no active workspace image; activate one in the admin console");
+  return { imageId: image.imageId };
+}
+
 async function startWorkspace(
   ctx: Ctx,
   ws: WorkspaceRow,
@@ -149,9 +170,7 @@ async function startWorkspace(
 ): Promise<void> {
   await ctx.db.update(workspaces).set({ status: "starting" }).where(eq(workspaces.id, ws.id));
   try {
-    const [image] = await ctx.db.select().from(images).where(eq(images.status, "active"));
-    if (!image?.imageId)
-      throw new Error("no active workspace image; activate one in the admin console");
+    const image = await resolveStartImage(ctx, ws);
     const { limits } = limitsOf(plan, ws.slug);
     await ctx.agent.startWorkspace(ws.slug, {
       imageId: image.imageId,
@@ -176,7 +195,10 @@ async function startWorkspace(
         startFailures: 0,
       })
       .where(eq(workspaces.id, ws.id));
-    await addEvent(ctx.db, ws.id, "started", { imageId: image.imageId });
+    await addEvent(ctx.db, ws.id, "started", {
+      imageId: image.imageId,
+      ...(ws.pinnedImageId ? { pinned: true } : {}),
+    });
   } catch (e) {
     await ctx.db
       .update(workspaces)
@@ -332,8 +354,40 @@ export const handlers: Record<JobRow["type"], Handler> = {
     const [row] = await ctx.db.select().from(images).where(eq(images.id, imageRowId));
     if (!row) return;
     if (row.status === "active") throw new NonRetryableError("refusing to delete the active image");
-    if (row.imageId) await ctx.agent.deleteImage(row.imageId);
-    await ctx.db.update(images).set({ status: "retired" }).where(eq(images.id, imageRowId));
+    const pinnedBy = await ctx.db
+      .select({ slug: workspaces.slug })
+      .from(workspaces)
+      .where(
+        and(
+          eq(workspaces.pinnedImageId, row.id),
+          notInArray(workspaces.status, [...WORKSPACE_GONE_STATUSES]),
+        ),
+      );
+    if (pinnedBy.length > 0)
+      throw new NonRetryableError(
+        `image is pinned by workspaces: ${pinnedBy.map((w) => w.slug).join(", ")}`,
+      );
+    if (row.imageId) {
+      const running = await ctx.db
+        .select({ slug: workspaces.slug })
+        .from(workspaces)
+        .where(
+          and(
+            eq(workspaces.imageId, row.imageId),
+            inArray(workspaces.status, [...CONTAINER_UP_STATUSES]),
+          ),
+        );
+      if (running.length > 0)
+        throw new NonRetryableError(
+          `image is in use by running workspaces: ${running.map((w) => w.slug).join(", ")}`,
+        );
+      await ctx.agent.deleteImage(row.imageId);
+    }
+    // Keep the row (and its build log) for audit; a null rootfsPath marks the files as gone.
+    await ctx.db
+      .update(images)
+      .set({ status: "retired", rootfsPath: null })
+      .where(eq(images.id, imageRowId));
   },
 };
 
