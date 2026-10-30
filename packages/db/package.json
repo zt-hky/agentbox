@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./toolchain": "./src/toolchain.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

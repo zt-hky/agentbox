@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { toolchainDefaultsSchema, toolchainDisabledSchema } from "./toolchain/catalog.ts";
 
 export const hibernationSettingsSchema = z.object({
   idleTimeoutMinutes: z.number().positive(),
@@ -21,10 +22,18 @@ export const billingSettingsSchema = z.object({
 });
 export type BillingSettings = z.infer<typeof billingSettingsSchema>;
 
+/** `defaults`: tools every workspace gets (until the user chooses otherwise); `disabled`: catalog entries switched off. */
+export const toolchainSettingsSchema = z.object({
+  defaults: toolchainDefaultsSchema,
+  disabled: toolchainDisabledSchema.default([]),
+});
+export type ToolchainSettings = z.infer<typeof toolchainSettingsSchema>;
+
 export const settingsSchemas = {
   hibernation: hibernationSettingsSchema,
   capacity: capacitySettingsSchema,
   billing: billingSettingsSchema,
+  toolchain: toolchainSettingsSchema,
 } as const;
 export type SettingKey = keyof typeof settingsSchemas;
 export type SettingValue<K extends SettingKey> = z.infer<(typeof settingsSchemas)[K]>;
