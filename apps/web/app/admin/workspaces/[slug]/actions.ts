@@ -1,16 +1,17 @@
 "use server";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { MAX_DIAG_LOG_TAIL, MIN_DIAG_LOG_TAIL, wsSlugSchema } from "@agentbox/core/agent-api";
 import { db } from "@agentbox/db/client";
-import { user, workspaceSessions, workspaces } from "@agentbox/db/schema";
+import { workspaces } from "@agentbox/db/schema";
 import { guard } from "@/lib/action";
 import { adminContext } from "@/lib/admin";
 import { writeAudit } from "@/lib/audit";
 import { UserError } from "@/lib/errors";
 import { enqueueWorkspaceJob } from "@/lib/jobs";
+import { deleteWorkspaceAsAdmin, stopWorkspaceAsAdmin } from "@/lib/admin/workspace-lifecycle";
 import {
   enqueueDiagnostic,
   enqueueRestart,
@@ -55,21 +56,7 @@ export async function adminStartWorkspace(slug: string) {
 export async function adminStopWorkspace(slug: string) {
   return guard(async () => {
     const { admin, ip } = await adminContext();
-    await db.transaction(async (tx) => {
-      const ws = await loadWorkspace(tx, slug);
-      if (ws.status !== "running" && ws.status !== "starting") {
-        throw new UserError(`Cannot stop a workspace that is ${ws.status}`);
-      }
-      await enqueueWorkspaceJob(tx, ws.id, { type: "stop_workspace", reason: "admin" });
-      await writeAudit(tx, {
-        actorId: admin.id,
-        action: "workspace.stop",
-        targetType: "workspace",
-        targetId: ws.id,
-        metadata: { slug: ws.slug },
-        ip,
-      });
-    });
+    await stopWorkspaceAsAdmin(db, { adminId: admin.id, ip }, slug);
     revalidatePath(`/admin/workspaces/${slug}`);
   });
 }
@@ -78,28 +65,7 @@ export async function adminStopWorkspace(slug: string) {
 export async function adminDeleteWorkspace(slug: string, confirm: string) {
   return guard(async () => {
     const { admin, ip } = await adminContext();
-    await db.transaction(async (tx) => {
-      const ws = await loadWorkspace(tx, slug);
-      if (confirm !== ws.slug) throw new UserError("Type the workspace slug to confirm");
-      if (ws.userId === admin.id) throw new UserError("You cannot delete your own workspace");
-      if (ws.status === "deleting" || ws.status === "deleted")
-        throw new UserError("Already deleted");
-      await tx.update(workspaces).set({ status: "deleting" }).where(eq(workspaces.id, ws.id));
-      await tx.update(user).set({ accessStatus: "suspended" }).where(eq(user.id, ws.userId));
-      await tx
-        .update(workspaceSessions)
-        .set({ revokedAt: new Date() })
-        .where(and(eq(workspaceSessions.userId, ws.userId), isNull(workspaceSessions.revokedAt)));
-      await enqueueWorkspaceJob(tx, ws.id, { type: "delete_tenant" });
-      await writeAudit(tx, {
-        actorId: admin.id,
-        action: "workspace.delete",
-        targetType: "workspace",
-        targetId: ws.id,
-        metadata: { slug: ws.slug, userId: ws.userId, previousStatus: ws.status },
-        ip,
-      });
-    });
+    await deleteWorkspaceAsAdmin(db, { adminId: admin.id, ip }, slug, confirm);
     revalidatePath("/admin/workspaces");
     revalidatePath(`/admin/workspaces/${slug}`);
   });

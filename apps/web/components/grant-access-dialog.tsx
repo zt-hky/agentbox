@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import type { z } from "zod";
-import { grantUserAccess } from "@/app/admin/requests/actions";
+import { grantUserAccess, recreateUserWorkspace } from "@/app/admin/requests/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -55,14 +55,18 @@ export function GrantAccessDialog({
   defaultPlanId,
   baseDomain,
   onClose,
+  mode = "grant",
 }: {
   target: GrantTarget;
   plans: PlanOption[];
   defaultPlanId: string;
   baseDomain: string;
   onClose: () => void;
+  /** `recreate`: the user's previous workspace is deleted; provisions a fresh one. */
+  mode?: "grant" | "recreate";
 }) {
   const router = useRouter();
+  const recreate = mode === "recreate";
   const [pending, start] = useTransition();
   const form = useForm<z.input<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -75,9 +79,13 @@ export function GrantAccessDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Approve {target.email}</DialogTitle>
+          <DialogTitle>
+            {recreate ? "Re-create workspace for" : "Approve"} {target.email}
+          </DialogTitle>
           <DialogDescription>
-            Gives the user access, assigns the plan and provisions their workspace.
+            {recreate
+              ? "Provisions a fresh workspace on a new slot after the old one was deleted. Old files are gone. An existing subscription and trial are kept."
+              : "Gives the user access, assigns the plan and provisions their workspace."}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -85,12 +93,17 @@ export function GrantAccessDialog({
             className="space-y-4"
             onSubmit={form.handleSubmit((values) =>
               start(async () => {
-                const res = await grantUserAccess({ ...values, userId: target.userId });
+                const res = await (recreate ? recreateUserWorkspace : grantUserAccess)({
+                  ...values,
+                  userId: target.userId,
+                });
                 if (!res.ok) {
                   toast.error(res.error);
                   return;
                 }
-                toast.success(`Approved. Provisioning workspace ${res.data.slug}`);
+                toast.success(
+                  `${recreate ? "Re-created" : "Approved"}. Provisioning workspace ${res.data.slug}`,
+                );
                 onClose();
                 router.refresh();
               }),
@@ -142,7 +155,13 @@ export function GrantAccessDialog({
                 Cancel
               </Button>
               <Button type="submit" disabled={pending}>
-                {pending ? "Approving…" : "Approve"}
+                {pending
+                  ? recreate
+                    ? "Creating…"
+                    : "Approving…"
+                  : recreate
+                    ? "Re-create workspace"
+                    : "Approve"}
               </Button>
             </DialogFooter>
           </form>

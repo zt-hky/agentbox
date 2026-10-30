@@ -122,6 +122,20 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
           <RoleControl userId={target.id} role={target.role ?? "user"} isSelf={isSelf} />
           {workspace ? (
             <>
+              {workspace.status === "deleted" ? (
+                <ApproveUserButton
+                  label="Re-create workspace"
+                  mode="recreate"
+                  target={{
+                    userId: target.id,
+                    email: target.email,
+                    suggestedSlug: workspace.slug,
+                  }}
+                  plans={plans.options}
+                  defaultPlanId={sub?.plan.id ?? plans.defaultPlanId}
+                  baseDomain={baseDomain()}
+                />
+              ) : null}
               <PlanControl
                 userId={target.id}
                 planId={sub?.plan.id ?? null}

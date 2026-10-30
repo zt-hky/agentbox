@@ -292,12 +292,14 @@ export function ApproveUserButton({
   plans,
   defaultPlanId,
   baseDomain,
+  mode,
 }: {
   label: string;
   target: GrantTarget;
   plans: PlanOption[];
   defaultPlanId: string;
   baseDomain: string;
+  mode?: "grant" | "recreate";
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -309,6 +311,7 @@ export function ApproveUserButton({
           plans={plans}
           defaultPlanId={defaultPlanId}
           baseDomain={baseDomain}
+          mode={mode}
           onClose={() => setOpen(false)}
         />
       ) : null}

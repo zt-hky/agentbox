@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { AdminSleepButton } from "../admin-sleep-button";
+import { ApproveUserButton } from "@/app/admin/users/[id]/user-controls";
+import type { PlanOption } from "@/components/grant-access-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import type { ActionResult } from "@/lib/action";
@@ -42,7 +44,7 @@ export function ManagePanel({
   ownerId,
   ownerEmail,
   planName,
-  isOwnerSelf,
+  recreate,
 }: {
   slug: string;
   status: string;
@@ -50,7 +52,12 @@ export function ManagePanel({
   ownerId: string;
   ownerEmail: string;
   planName: string | null;
-  isOwnerSelf: boolean;
+  /** Set for a `deleted` workspace: the owner can get a fresh one. */
+  recreate: {
+    plans: PlanOption[];
+    defaultPlanId: string;
+    baseDomain: string;
+  } | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -135,25 +142,38 @@ export function ManagePanel({
       <Row
         title="Delete workspace"
         description={
-          isOwnerSelf
-            ? "You cannot delete your own workspace."
-            : "Destroys the container, the Linux account and all workspace data, and suspends the user's access. This cannot be undone."
+          "Destroys the container, the Linux account and all workspace data. Non-admin owners are suspended; an admin keeps console access. This cannot be undone."
         }
       >
         <ConfirmDialog
           trigger={
-            <Button size="sm" variant="destructive" disabled={pending || gone || isOwnerSelf}>
+            <Button size="sm" variant="destructive" disabled={pending || gone}>
               Delete
             </Button>
           }
           title={`Delete ${slug}?`}
-          description="The container, Linux account and all workspace data are destroyed, and the user's access is suspended."
+          description="The container, Linux account and all workspace data are destroyed. A non-admin owner is suspended."
           confirmLabel="Delete workspace"
           destructive
           confirmText={slug}
           onConfirm={() => confirmed(() => adminDeleteWorkspace(slug, slug))}
         />
       </Row>
+      {recreate ? (
+        <Row
+          title="Re-create workspace"
+          description={`Provision a fresh workspace for ${ownerEmail}. The old slug can be reused; a new slot and identity secret are issued.`}
+        >
+          <ApproveUserButton
+            label="Re-create workspace"
+            mode="recreate"
+            target={{ userId: ownerId, email: ownerEmail, suggestedSlug: slug }}
+            plans={recreate.plans}
+            defaultPlanId={recreate.defaultPlanId}
+            baseDomain={recreate.baseDomain}
+          />
+        </Row>
+      ) : null}
     </div>
   );
 }

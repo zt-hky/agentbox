@@ -221,6 +221,27 @@ describe("job handlers", () => {
     });
   });
 
+  it("stop_workspace from error stops the container and ends sleeping", async () => {
+    const w = await seedWorld(t.db, { status: "error" });
+    const id = await enqueue("stop_workspace", w.workspaceId, { reason: "admin" });
+    await runAll();
+    expect((await job(id)).status).toBe("done");
+    expect(await ws(w.workspaceId)).toMatchObject({ status: "sleeping", awakeSince: null });
+    expect(agent.callsTo("POST /v1/workspaces/alice/stop")).toHaveLength(1);
+  });
+
+  it("stop_workspace from error is safe when the host has no tenant (404)", async () => {
+    const w = await seedWorld(t.db, { status: "error" });
+    agent.on("POST /v1/workspaces/alice/stop", {
+      status: 404,
+      json: { error: "tenant alice not found" },
+    });
+    const id = await enqueue("stop_workspace", w.workspaceId, { reason: "admin" });
+    await runAll();
+    expect((await job(id)).status).toBe("done");
+    expect((await ws(w.workspaceId)).status).toBe("sleeping");
+  });
+
   it("stop_workspace with a failing agent leaves the workspace in error and retries", async () => {
     const w = await seedWorld(t.db);
     agent.on("POST /v1/workspaces/alice/stop", {

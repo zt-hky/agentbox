@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { eq, ne, sql } from "drizzle-orm";
 import { decrypt } from "@agentbox/core/tokens";
 import { readSetting } from "@agentbox/db/client";
 import {
@@ -8,11 +8,12 @@ import {
   auditLog,
   creditBalances,
   jobs,
+  plans,
   subscriptions,
   user,
   workspaces,
 } from "@agentbox/db/schema";
-import { grantAccess, openAccessRequest } from "../lib/approve";
+import { grantAccess, openAccessRequest, recreateWorkspace } from "../lib/approve";
 import { checkSlugAvailable } from "../lib/slug-taken";
 import { UserError } from "../lib/errors";
 import { createTestDb, seedAdmin, seedRequester, seedUser, type TestDb } from "./helpers/db";
@@ -242,5 +243,104 @@ describe("checkSlugAvailable", () => {
         .set({ requestedSlug: "dupe" })
         .where(eq(accessRequests.id, b.requestId)),
     ).rejects.toThrow();
+  });
+});
+
+describe("recreateWorkspace", () => {
+  const markDeleted = async (userId: string, status: "deleted" | "deleting" = "deleted") => {
+    await t.db.update(workspaces).set({ status }).where(eq(workspaces.userId, userId));
+  };
+  const granted = async (email: string, slug: string) => {
+    const userId = await seedUser(t.db, email, "none");
+    const res = await grantAccess(t.db, input(userId, slug));
+    return { ...res, userId };
+  };
+
+  it("reuses the deleted row with the same slug, a new slot and secret, and queues provisioning", async () => {
+    const g = await granted("re1@example.com", "recone");
+    const [before] = await t.db.select().from(workspaces).where(eq(workspaces.id, g.workspaceId));
+    await t.db.delete(jobs).where(eq(jobs.workspaceId, g.workspaceId));
+    await markDeleted(g.userId);
+    await t.db.update(user).set({ accessStatus: "suspended" }).where(eq(user.id, g.userId));
+    const [subBefore] = await t.db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, g.userId));
+
+    const res = await recreateWorkspace(t.db, input(g.userId, "recone"));
+    expect(res.workspaceId).toBe(g.workspaceId);
+    expect(res.slot).toBeGreaterThan(g.slot);
+
+    const [ws] = await t.db.select().from(workspaces).where(eq(workspaces.userId, g.userId));
+    expect(ws).toMatchObject({
+      slug: "recone",
+      slot: res.slot,
+      status: "provisioning",
+      imageId: null,
+      startFailures: 0,
+    });
+    expect(ws!.identitySecretEnc).not.toBe(before!.identitySecretEnc);
+    const j = await t.db.select().from(jobs).where(eq(jobs.workspaceId, ws!.id));
+    expect(j.map((x) => [x.type, x.status])).toEqual([["provision_tenant", "queued"]]);
+    const [u] = await t.db.select().from(user).where(eq(user.id, g.userId));
+    expect(u!.accessStatus).toBe("active");
+    const [subAfter] = await t.db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, g.userId));
+    expect(subAfter).toEqual(subBefore); // same plan: no second trial, cycle untouched
+    const audit = await t.db.select().from(auditLog).where(eq(auditLog.targetId, ws!.id));
+    expect(audit.map((a) => a.action)).toContain("workspace.recreate");
+  });
+
+  it("allows a different slug, freeing the old one only for the same user", async () => {
+    const g = await granted("re2@example.com", "rectwo");
+    await markDeleted(g.userId);
+    const other = await seedUser(t.db, "re2other@example.com", "none");
+    await expect(grantAccess(t.db, input(other, "rectwo"))).rejects.toThrow(UserError);
+    expect((await checkSlugAvailable(t.db, "rectwo", g.userId)).ok).toBe(true);
+    expect((await checkSlugAvailable(t.db, "rectwo", other)).ok).toBe(false);
+
+    await recreateWorkspace(t.db, input(g.userId, "rectwonew"));
+    const [ws] = await t.db.select().from(workspaces).where(eq(workspaces.userId, g.userId));
+    expect(ws!.slug).toBe("rectwonew");
+  });
+
+  it("refuses while deleting, while live, and another user's slug", async () => {
+    const g = await granted("re3@example.com", "recthree");
+    await expect(recreateWorkspace(t.db, input(g.userId, "recthree"))).rejects.toThrow(
+      /Delete the current workspace/,
+    );
+    await markDeleted(g.userId, "deleting");
+    await expect(recreateWorkspace(t.db, input(g.userId, "recthree"))).rejects.toThrow(
+      /still being deleted/,
+    );
+    await markDeleted(g.userId);
+    const h = await granted("re3b@example.com", "recthreeb");
+    await expect(recreateWorkspace(t.db, input(g.userId, "recthreeb"))).rejects.toThrow(UserError);
+    expect(h.slot).toBeGreaterThan(0);
+    const [ws] = await t.db.select().from(workspaces).where(eq(workspaces.userId, g.userId));
+    expect(ws).toMatchObject({ status: "deleted", slug: "recthree" });
+    await expect(recreateWorkspace(t.db, input("nobody", "recx"))).rejects.toThrow(UserError);
+  });
+
+  it("a plan change swaps the plan without a new trial", async () => {
+    const g = await granted("re4@example.com", "recfour");
+    await markDeleted(g.userId);
+    const [other] = await t.db.select().from(plans).where(ne(plans.id, planId)).limit(1);
+    const [subBefore] = await t.db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, g.userId));
+    await recreateWorkspace(t.db, { ...input(g.userId, "recfour"), planId: other!.id });
+    const [subAfter] = await t.db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, g.userId));
+    expect(subAfter).toMatchObject({
+      planId: other!.id,
+      trialEndsAt: subBefore!.trialEndsAt,
+      cycleStart: subBefore!.cycleStart,
+    });
   });
 });

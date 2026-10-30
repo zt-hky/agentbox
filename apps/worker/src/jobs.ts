@@ -206,8 +206,11 @@ async function stopWorkspace(
   try {
     await ctx.agent.stopWorkspace(ws.slug);
   } catch (e) {
-    await ctx.db.update(workspaces).set({ status: "error" }).where(eq(workspaces.id, ws.id));
-    throw e;
+    // 404: no tenant exists on the host, so nothing can be running. Anything else is a real failure.
+    if (!(e instanceof AgentError && e.status === 404)) {
+      await ctx.db.update(workspaces).set({ status: "error" }).where(eq(workspaces.id, ws.id));
+      throw e;
+    }
   }
   await ctx.db
     .update(workspaces)

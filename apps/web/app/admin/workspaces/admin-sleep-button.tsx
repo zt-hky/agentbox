@@ -18,7 +18,7 @@ export function AdminSleepButton({
   disabled?: boolean;
 }) {
   const router = useRouter();
-  const canSleep = status === "running" || status === "starting";
+  const canSleep = status === "running" || status === "starting" || status === "error";
   return (
     <ConfirmDialog
       trigger={

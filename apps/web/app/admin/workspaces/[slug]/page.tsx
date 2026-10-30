@@ -37,6 +37,7 @@ import {
 import { latestDiagnostics, loadUsageSeries, toJobView } from "@/lib/admin/workspaces-ops";
 import { baseDomain } from "@/lib/env";
 import { formatAgo, formatBytes, formatDateTime, formatDuration } from "@/lib/format";
+import { planOptions } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { DiagnosticPanel } from "./diagnostics";
@@ -67,7 +68,7 @@ export default async function AdminWorkspacePage({
   params: Promise<{ slug: string }>;
   searchParams: Promise<Search>;
 }) {
-  const session = await requireAdmin();
+  await requireAdmin();
   const { slug } = await params;
   const search = await searchParams;
   const tab = parseTab(search.tab);
@@ -88,6 +89,14 @@ export default async function AdminWorkspacePage({
   const domain = baseDomain();
   const openable = w.status !== "deleted" && w.status !== "deleting";
   const running = w.status === "running";
+  const planChoices = w.status === "deleted" ? await planOptions() : null;
+  const recreate = planChoices
+    ? {
+        plans: planChoices.options,
+        defaultPlanId: plan?.id ?? planChoices.defaultPlanId,
+        baseDomain: domain,
+      }
+    : null;
 
   return (
     <>
@@ -153,7 +162,7 @@ export default async function AdminWorkspacePage({
             ownerId={u.id}
             ownerEmail={u.email}
             planName={plan?.name ?? null}
-            isOwnerSelf={u.id === session.user.id}
+            recreate={recreate}
           />
         </Section>
       )}

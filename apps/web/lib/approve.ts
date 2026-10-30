@@ -149,6 +149,120 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
   }
 }
 
+/**
+ * Re-create the workspace of a user whose previous one is fully `deleted` (never while
+ * `deleting`: the host account may still exist). The `deleted` row is reused in place, because
+ * `workspaces.userId`/`slug` are unique and usage, events, jobs and ledger rows reference its id:
+ * it gets a fresh slot, identity secret, the chosen slug and `provisioning`, plus a
+ * `provision_tenant` job. The user becomes `active` again. An existing subscription is kept so a
+ * trial is never granted twice and its cycle and usage carry on; choosing another plan only
+ * swaps `planId` (no fee is charged; use a plan change for that). Without a subscription the
+ * user gets one exactly like `grantAccess`.
+ */
+export async function recreateWorkspace(database: Db, input: GrantInput): Promise<GrantResult> {
+  const now = input.now ?? new Date();
+  try {
+    return await database.transaction(async (tx) => {
+      const target = (
+        await tx.select().from(user).where(eq(user.id, input.userId)).for("update")
+      )[0];
+      if (!target) throw new UserError("User not found");
+
+      const old = (
+        await tx.select().from(workspaces).where(eq(workspaces.userId, target.id)).for("update")
+      )[0];
+      if (!old) throw new UserError("User has no workspace to re-create; grant access instead");
+      if (old.status === "deleting") {
+        throw new UserError("The old workspace is still being deleted. Wait until it is deleted.");
+      }
+      if (old.status !== "deleted") {
+        throw new UserError("Delete the current workspace before re-creating it");
+      }
+
+      const slugCheck = await checkSlugAvailable(tx, input.slug, target.id);
+      if (!slugCheck.ok) throw new UserError(slugCheck.error);
+
+      const plan = (await tx.select().from(plans).where(eq(plans.id, input.planId)).limit(1))[0];
+      if (!plan || !plan.active) throw new UserError("Plan not found or inactive");
+
+      const slotRes = await tx.execute<{ slot: number }>(
+        sql`select nextval('tenant_slot_seq')::int as slot`,
+      );
+      const slot = slotRes.rows[0]?.slot;
+      if (typeof slot !== "number") throw new UserError("No tenant slot available");
+
+      const decided = { status: "approved" as const, decidedBy: input.adminId, decidedAt: now };
+      await tx
+        .update(accessRequests)
+        .set(decided)
+        .where(and(eq(accessRequests.userId, target.id), eq(accessRequests.status, "pending")));
+      await tx.update(user).set({ accessStatus: "active" }).where(eq(user.id, target.id));
+
+      const sub = (
+        await tx
+          .select()
+          .from(subscriptions)
+          .where(eq(subscriptions.userId, target.id))
+          .for("update")
+      )[0];
+      if (!sub) {
+        await tx.insert(subscriptions).values({
+          userId: target.id,
+          planId: plan.id,
+          cycleStart: now,
+          cycleEnd: addMonths(now, 1),
+          trialEndsAt: trialEnd(plan, now),
+        });
+      } else if (sub.planId !== plan.id) {
+        await tx.update(subscriptions).set({ planId: plan.id }).where(eq(subscriptions.id, sub.id));
+      }
+      await tx
+        .insert(creditBalances)
+        .values({ userId: target.id, balanceMicro: 0n })
+        .onConflictDoNothing();
+
+      await tx
+        .update(workspaces)
+        .set({
+          slug: input.slug,
+          slot,
+          status: "provisioning",
+          imageId: null,
+          identitySecretEnc: encrypt(randomToken(), input.encryptionKey),
+          lastRequestAt: null,
+          lastActivityAt: null,
+          awakeSince: null,
+          lastCpuUsec: 0n,
+          startFailures: 0,
+          githubSyncPending: false,
+          createdAt: now,
+        })
+        .where(eq(workspaces.id, old.id));
+
+      await enqueueWorkspaceJob(tx, old.id, { type: "provision_tenant" });
+      await writeAudit(tx, {
+        actorId: input.adminId,
+        action: "workspace.recreate",
+        targetType: "workspace",
+        targetId: old.id,
+        metadata: {
+          userId: target.id,
+          previousSlug: old.slug,
+          slug: input.slug,
+          slot,
+          planId: plan.id,
+          previous: target.accessStatus,
+        },
+        ip: input.ip,
+      });
+      return { workspaceId: old.id, slot, userId: target.id };
+    });
+  } catch (e) {
+    if (isUniqueViolation(e)) throw new UserError("Slug or workspace already exists");
+    throw e;
+  }
+}
+
 /** Open a pending request for a newly signed-up user, so admins see them right away. */
 export async function openAccessRequest(database: Db, userId: string): Promise<void> {
   await database.transaction(async (tx) => {

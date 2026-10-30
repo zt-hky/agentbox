@@ -6,7 +6,7 @@ import { db } from "@agentbox/db/client";
 import { accessRequests, user } from "@agentbox/db/schema";
 import { guard } from "@/lib/action";
 import { adminContext } from "@/lib/admin";
-import { grantAccess } from "@/lib/approve";
+import { grantAccess, recreateWorkspace } from "@/lib/approve";
 import { writeAudit } from "@/lib/audit";
 import { encryptionKey } from "@/lib/env";
 import { UserError } from "@/lib/errors";
@@ -27,6 +27,28 @@ export async function grantUserAccess(input: z.input<typeof grantSchema>) {
       ip,
     });
     revalidatePath("/admin/requests");
+    revalidatePath(`/admin/users/${parsed.data.userId}`);
+    revalidatePath("/admin/users");
+    return { slug: parsed.data.slug, slot: result.slot };
+  });
+}
+
+/** Admin re-creates the workspace of a user whose previous one is `deleted`. */
+export async function recreateUserWorkspace(input: z.input<typeof grantSchema>) {
+  return guard(async () => {
+    const { admin, ip } = await adminContext();
+    const parsed = grantSchema.safeParse(input);
+    if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Invalid input");
+    const result = await recreateWorkspace(db, {
+      userId: parsed.data.userId,
+      adminId: admin.id,
+      slug: parsed.data.slug,
+      planId: parsed.data.planId,
+      encryptionKey: encryptionKey(),
+      ip,
+    });
+    revalidatePath("/admin/workspaces");
+    revalidatePath(`/admin/workspaces/${parsed.data.slug}`);
     revalidatePath(`/admin/users/${parsed.data.userId}`);
     revalidatePath("/admin/users");
     return { slug: parsed.data.slug, slot: result.slot };
