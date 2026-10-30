@@ -45,7 +45,7 @@ async function firewallStats(): Promise<StatsResponse["host"]["firewall"]> {
   return parseNftCounters(r.code === 0 ? r.stdout : "");
 }
 
-async function tenantStats(): Promise<StatsResponse["tenants"]> {
+export async function tenantStats(): Promise<StatsResponse["tenants"]> {
   const [names, report] = await Promise.all([
     readdir(TENANTS_DIR).catch(() => [] as string[]),
     run("xfs_quota", ["-x", "-c", "report -u -n -N -b -i", STORAGE_MOUNT], {

@@ -8,5 +8,6 @@ await build({
   platform: "node",
   target: "node22",
   format: "esm",
+  loader: { ".sh": "text" },
   logLevel: "info",
 });

@@ -1,5 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { z } from "zod";
+import { jobIdSchema } from "@agentbox/core/agent-api";
+import { toolchainApplyRequestSchema, toolchainRunQuerySchema } from "@agentbox/core/toolchain";
 import {
   buildImageRequestSchema,
   createTenantRequestSchema,
@@ -21,6 +23,12 @@ import { buildImage, deleteImage, readBuildLog } from "./images.ts";
 import { errMessage, logEvent } from "./log.ts";
 import { collectStats } from "./stats.ts";
 import { createTenant, deleteTenant, updateLimits } from "./tenants.ts";
+import {
+  toolchainApply,
+  toolchainCancel,
+  toolchainRun,
+  toolchainState,
+} from "./toolchain/index.ts";
 import {
   copilotLoginCancelOp,
   copilotLoginStartOp,
@@ -188,6 +196,39 @@ export const routes: Route[] = [
     pattern: /^\/v1\/images\/([^/]+)$/,
     handler: async (c) => {
       await deleteImage(parse(imageParamsSchema, { imageId: c.params["0"] }).imageId);
+      return OK;
+    },
+  },
+  {
+    method: "POST",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/toolchain\/apply$/,
+    handler: async (c) => {
+      const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
+      await toolchainApply(ws, parse(toolchainApplyRequestSchema, await c.body()));
+      return OK;
+    },
+  },
+  {
+    method: "GET",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/toolchain\/runs\/([^/]+)$/,
+    handler: async (c) => {
+      const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
+      const runId = parse(jobIdSchema, c.params["1"]);
+      const { offset } = parse(toolchainRunQuerySchema, Object.fromEntries(c.query));
+      return toolchainRun(ws, runId, offset);
+    },
+  },
+  {
+    method: "GET",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/toolchain\/state$/,
+    handler: async (c) => toolchainState(parse(wsParamsSchema, { ws: c.params["0"] }).ws),
+  },
+  {
+    method: "POST",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/toolchain\/runs\/([^/]+)\/cancel$/,
+    handler: async (c) => {
+      const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
+      await toolchainCancel(ws, parse(jobIdSchema, c.params["1"]));
       return OK;
     },
   },
