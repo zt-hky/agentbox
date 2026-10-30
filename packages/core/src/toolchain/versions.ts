@@ -99,13 +99,15 @@ export function resolveTarget(
       ? { ok: true, version: match }
       : { ok: false, reason: `no ${entry.label} ${pinned}.x release is published` };
   }
-  if (info.versions.includes(pinned) || info.latest === pinned) return { ok: true, version: pinned };
+  if (info.versions.includes(pinned) || info.latest === pinned)
+    return { ok: true, version: pinned };
   return { ok: false, reason: `${entry.label} ${pinned} is not among the published versions` };
 }
 
 /** Whether an installed version already satisfies a pin (a line is satisfied by any patch in it). */
 export function satisfiesPin(entry: CatalogEntry, pinned: string, installed: string): boolean {
-  if (entry.lines && isLine(pinned)) return installed === pinned || installed.startsWith(`${pinned}.`);
+  if (entry.lines && isLine(pinned))
+    return installed === pinned || installed.startsWith(`${pinned}.`);
   return installed === pinned;
 }
 

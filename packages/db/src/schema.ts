@@ -17,12 +17,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import {
-  CHANNELS,
-  REQUESTED_ACTIONS,
-  RUN_STATUSES,
-  TOOL_STATES,
-} from "@agentbox/core/toolchain";
+import { CHANNELS, REQUESTED_ACTIONS, RUN_STATUSES, TOOL_STATES } from "@agentbox/core/toolchain";
 
 const tstz = (name: string) => timestamp(name, { withTimezone: true });
 const createdAt = () => tstz("created_at").notNull().defaultNow();
@@ -389,7 +384,10 @@ export const toolLatest = pgTable("tool_latest", {
   toolId: text("tool_id").primaryKey(),
   latest: text("latest"),
   lts: text("lts"),
-  versions: jsonb("versions").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  versions: jsonb("versions")
+    .$type<string[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
   meta: jsonb("meta").$type<Record<string, string>>(),
   checkedAt: tstz("checked_at"),
   error: text("error"),

@@ -36,7 +36,10 @@ async function ok(res: FetchResponse, url: string): Promise<FetchResponse> {
  * this (not the workspace), so tenants sharing one egress IP never hit GitHub's anonymous rate
  * limit just to learn the latest version.
  */
-export async function fetchLatestInfo(entry: CatalogEntry, fetchImpl: FetchLike): Promise<LatestInfo> {
+export async function fetchLatestInfo(
+  entry: CatalogEntry,
+  fetchImpl: FetchLike,
+): Promise<LatestInfo> {
   const src = entry.versionSource;
   let info: LatestInfo;
   switch (src.kind) {

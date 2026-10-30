@@ -1,12 +1,14 @@
 import { z } from "zod";
 import type { AgentStep } from "./api.ts";
-import { CATALOG, requireEntry, toolIdSchema, type CatalogEntry, type Channel, type ToolId } from "./catalog.ts";
 import {
-  compareVersions,
-  resolveTarget,
-  satisfiesPin,
-  type LatestInfo,
-} from "./versions.ts";
+  CATALOG,
+  requireEntry,
+  toolIdSchema,
+  type CatalogEntry,
+  type Channel,
+  type ToolId,
+} from "./catalog.ts";
+import { compareVersions, resolveTarget, satisfiesPin, type LatestInfo } from "./versions.ts";
 
 export const TOOL_STATES = [
   "idle",
@@ -39,7 +41,15 @@ export interface ObservedRow {
 export const REQUESTED_ACTIONS = ["upgrade", "rollback", "reinstall"] as const;
 export type RequestedAction = (typeof REQUESTED_ACTIONS)[number];
 
-export const PLAN_ACTIONS = ["install", "upgrade", "downgrade", "reinstall", "remove", "relink", "verify"] as const;
+export const PLAN_ACTIONS = [
+  "install",
+  "upgrade",
+  "downgrade",
+  "reinstall",
+  "remove",
+  "relink",
+  "verify",
+] as const;
 export type PlanAction = (typeof PLAN_ACTIONS)[number];
 
 export const planStepSchema = z.object({
@@ -74,7 +84,9 @@ export interface PlanInput {
 }
 
 /** A managed install exists (as opposed to a tool the image happens to ship). */
-export const isManaged = (o: ObservedRow | undefined): o is ObservedRow & { installedVersion: string; backend: string } =>
+export const isManaged = (
+  o: ObservedRow | undefined,
+): o is ObservedRow & { installedVersion: string; backend: string } =>
   !!o && o.backend !== null && o.installedVersion !== null && o.state !== "external";
 
 const wants = (list: readonly ToolId[] | "all" | undefined, id: ToolId) =>
@@ -107,13 +119,21 @@ export function buildPlan(input: PlanInput): Plan {
 
     if (wants(input.rollback, id)) {
       if (!managed) errors.push({ tool: id, reason: "nothing is installed to roll back" });
-      else if (!have.previousVersion) errors.push({ tool: id, reason: "no previous version is kept" });
-      else steps.push({ tool: id, action: "relink", from: have.installedVersion, to: have.previousVersion });
+      else if (!have.previousVersion)
+        errors.push({ tool: id, reason: "no previous version is kept" });
+      else
+        steps.push({
+          tool: id,
+          action: "relink",
+          from: have.installedVersion,
+          to: have.previousVersion,
+        });
       continue;
     }
 
     if (!want.desired) {
-      if (managed) steps.push({ tool: id, action: "remove", from: have.installedVersion, to: null });
+      if (managed)
+        steps.push({ tool: id, action: "remove", from: have.installedVersion, to: null });
       continue;
     }
 
@@ -125,12 +145,19 @@ export function buildPlan(input: PlanInput): Plan {
     }
 
     if (!managed) {
-      steps.push({ tool: id, action: "install", from: have?.installedVersion ?? null, to: target.version });
+      steps.push({
+        tool: id,
+        action: "install",
+        from: have?.installedVersion ?? null,
+        to: target.version,
+      });
       continue;
     }
     const installed = have.installedVersion;
     const pinDrift =
-      want.channel === "pin" && !!want.pinnedVersion && !satisfiesPin(entry, want.pinnedVersion, installed);
+      want.channel === "pin" &&
+      !!want.pinnedVersion &&
+      !satisfiesPin(entry, want.pinnedVersion, installed);
     if (wants(input.reinstall, id)) {
       steps.push({ tool: id, action: "reinstall", from: installed, to: target.version });
     } else if (pinDrift || (wants(input.upgrade, id) && installed !== target.version)) {
@@ -168,7 +195,11 @@ export function toAgentStep(plan: PlanStep, info: LatestInfo | undefined): Agent
   const entry = requireEntry(plan.tool);
   const base = {
     tool: entry.id,
-    bins: entry.bins.map((b) => ({ name: b.name, ...(b.file ? { file: b.file } : {}), optional: b.optional ?? false })),
+    bins: entry.bins.map((b) => ({
+      name: b.name,
+      ...(b.file ? { file: b.file } : {}),
+      optional: b.optional ?? false,
+    })),
     versionArgs: entry.versionArgs,
   };
   switch (plan.action) {

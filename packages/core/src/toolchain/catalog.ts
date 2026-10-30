@@ -162,10 +162,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     description: "Oh My Pi coding agent (omp).",
     bins: [{ name: "omp" }],
     versionArgs: ver,
-    backends: [
-      { spec: "github:can1357/oh-my-pi" },
-      { spec: "npm:@oh-my-pi/pi-coding-agent" },
-    ],
+    backends: [{ spec: "github:can1357/oh-my-pi" }, { spec: "npm:@oh-my-pi/pi-coding-agent" }],
     versionSource: { kind: "npm", pkg: "@oh-my-pi/pi-coding-agent" },
     channels: ["latest", "pin"],
     lines: false,

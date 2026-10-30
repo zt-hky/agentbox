@@ -84,18 +84,20 @@ export interface GateVerdict {
  * desired tool has a managed copy. Otherwise the workspace would lose the tools the old image
  * provided.
  */
-export function evaluateImageGate(
-  manifest: ImageManifest | null,
-  ws: GateWorkspace,
-): GateVerdict {
+export function evaluateImageGate(manifest: ImageManifest | null, ws: GateWorkspace): GateVerdict {
   const reasons: string[] = [];
-  if (manifest?.toolchainAbi && ws.toolchainAbi && abiIsOlder(manifest.toolchainAbi, ws.toolchainAbi)) {
+  if (
+    manifest?.toolchainAbi &&
+    ws.toolchainAbi &&
+    abiIsOlder(manifest.toolchainAbi, ws.toolchainAbi)
+  ) {
     reasons.push(
       `This image is built for ${manifest.toolchainAbi}; the workspace toolchain was installed for ${ws.toolchainAbi}.`,
     );
   }
   if (manifest?.slim) {
-    if (!manifest.mise) reasons.push("The image has no mise, so the toolchain cannot be reconciled on it.");
+    if (!manifest.mise)
+      reasons.push("The image has no mise, so the toolchain cannot be reconciled on it.");
     if (!ws.toolchainReconciledAt) reasons.push("No toolchain reconcile has succeeded yet.");
     else if (ws.toolchainAppliedGeneration < ws.toolchainGeneration)
       reasons.push("A toolchain change has not been applied yet.");

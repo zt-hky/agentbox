@@ -5,12 +5,13 @@ import {
   catalogEntry,
   parseImageManifest,
   type Channel,
+  type LatestInfo,
   type RequestedAction,
   type ToolDefault,
   type ToolId,
 } from "@agentbox/core/toolchain";
 import { readSetting, type Db } from "./client.ts";
-import { images, jobs, toolchainRuns, workspaceTools, workspaces } from "./schema.ts";
+import { images, jobs, toolLatest, toolchainRuns, workspaceTools, workspaces } from "./schema.ts";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 /** A database handle or an open transaction. */
@@ -59,7 +60,9 @@ export async function bakedToolsFor(
       .limit(1);
   }
   if (!row) return [...BAKED_TOOL_IDS];
-  return parseImageManifest(row.manifest)?.baked ?? (row.manifest == null ? [...BAKED_TOOL_IDS] : []);
+  return (
+    parseImageManifest(row.manifest)?.baked ?? (row.manifest == null ? [...BAKED_TOOL_IDS] : [])
+  );
 }
 
 /**
@@ -178,4 +181,36 @@ export async function requestReconcile(
       .onConflictDoNothing();
     return { runId, newRun: !open };
   });
+}
+
+/**
+ * Store what a tool publishes (`tool_latest`). A failed fetch keeps the previous good data and
+ * records only the error, so the planner and the UI keep working from the last successful check.
+ */
+export async function upsertToolLatest(
+  database: DbLike,
+  toolId: ToolId,
+  outcome: { info: LatestInfo } | { error: string },
+  now: Date = new Date(),
+): Promise<void> {
+  if ("error" in outcome) {
+    await database
+      .insert(toolLatest)
+      .values({ toolId, versions: [], error: outcome.error })
+      .onConflictDoUpdate({ target: toolLatest.toolId, set: { error: outcome.error } });
+    return;
+  }
+  const { info } = outcome;
+  const values = {
+    latest: info.latest,
+    lts: info.lts,
+    versions: info.versions,
+    meta: info.meta ?? null,
+    checkedAt: now,
+    error: null,
+  };
+  await database
+    .insert(toolLatest)
+    .values({ toolId, ...values })
+    .onConflictDoUpdate({ target: toolLatest.toolId, set: values });
 }

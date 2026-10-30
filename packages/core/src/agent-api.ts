@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { imageManifestSchema } from "./toolchain/gate.ts";
 
 /** Route params */
 export const wsSlugSchema = z.string().regex(/^[a-z][a-z0-9]{2,19}$/);
@@ -74,6 +75,8 @@ export type GithubConnectRequest = z.infer<typeof githubConnectRequestSchema>;
 export const buildImageRequestSchema = z.object({
   jobId: jobIdSchema,
   t3Ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/),
+  /** Skip the baked runtimes and agent CLIs (build arg SLIM=1). */
+  slim: z.boolean().optional(),
 });
 export type BuildImageRequest = z.infer<typeof buildImageRequestSchema>;
 
@@ -93,6 +96,8 @@ export const buildImageResponseSchema = z.object({
   imageId: imageIdSchema,
   scanSummary: scanSummarySchema,
   logPath: z.string().min(1),
+  /** Parsed `/opt/agentbox/versions.json` of the built image; absent for images without one. */
+  manifest: imageManifestSchema.optional(),
 });
 export type BuildImageResponse = z.infer<typeof buildImageResponseSchema>;
 
