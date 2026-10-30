@@ -13,6 +13,7 @@ import {
   UserPlus,
   Users,
   Wallet,
+  Wrench,
   KeyRound,
 } from "lucide-react";
 
@@ -27,6 +28,7 @@ export interface NavItem {
 export const USER_NAV: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, exact: true },
   { title: "Billing", url: "/billing", icon: CreditCard },
+  { title: "Tools", url: "/tools", icon: Wrench },
   { title: "Accounts", url: "/settings/github", icon: GitBranch },
   { title: "Sessions", url: "/settings/sessions", icon: KeyRound },
 ];
@@ -54,6 +56,7 @@ export const ADMIN_NAV_GROUPS: NavGroupConfig[] = [
       { title: "Overview", url: "/admin", icon: Server, exact: true },
       { title: "Jobs", url: "/admin/jobs", icon: ListChecks },
       { title: "Images", url: "/admin/images", icon: ImageIcon },
+      { title: "Tools", url: "/admin/tools", icon: Wrench },
       { title: "Settings", url: "/admin/settings", icon: Settings },
       { title: "Audit log", url: "/admin/audit", icon: History },
     ],

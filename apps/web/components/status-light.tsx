@@ -28,6 +28,15 @@ const STATUS: Record<string, { tone: Tone; label: string }> = {
   none: { tone: "idle", label: "No access" },
   rejected: { tone: "error", label: "Rejected" },
   suspended: { tone: "error", label: "Suspended" },
+  // toolchain tools and runs
+  installing: { tone: "busy", label: "Installing" },
+  removing: { tone: "busy", label: "Removing" },
+  waiting: { tone: "busy", label: "Waiting for start" },
+  external: { tone: "idle", label: "From image" },
+  succeeded: { tone: "ok", label: "Succeeded" },
+  partial: { tone: "error", label: "Partly failed" },
+  interrupted: { tone: "error", label: "Interrupted" },
+  cancelled: { tone: "idle", label: "Cancelled" },
 };
 
 export function statusTone(status: string): Tone {

@@ -4,17 +4,18 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@agentbox/db/client";
 import { plans, settings } from "@agentbox/db/schema";
-import { parseSetting, type SettingKey } from "@agentbox/core/settings";
+import { parseSetting, type SettingKey, type ToolchainSettings } from "@agentbox/core/settings";
 import { guard } from "@/lib/action";
 import { adminContext } from "@/lib/admin";
 import { writeAudit } from "@/lib/audit";
+import { loadLatestForValidation, validateToolchainSettings } from "@/lib/admin/toolchain-ops";
 import { UserError } from "@/lib/errors";
 
 /** Validates with the core zod schema for `key`, upserts, and audits (before/after). */
 export async function saveSetting(key: SettingKey, input: unknown) {
   return guard(async () => {
     const { admin, ip } = await adminContext();
-    if (key !== "hibernation" && key !== "capacity" && key !== "billing") {
+    if (key !== "hibernation" && key !== "capacity" && key !== "billing" && key !== "toolchain") {
       throw new UserError("Unknown setting");
     }
     let value: unknown;
@@ -28,6 +29,9 @@ export async function saveSetting(key: SettingKey, input: unknown) {
         const planId = (value as { defaultPlanId: string }).defaultPlanId;
         const plan = (await tx.select().from(plans).where(eq(plans.id, planId)).limit(1))[0];
         if (!plan || !plan.active) throw new UserError("Default plan must be an active plan");
+      }
+      if (key === "toolchain") {
+        validateToolchainSettings(value as ToolchainSettings, await loadLatestForValidation(tx));
       }
       const before = (await tx.select().from(settings).where(eq(settings.key, key)).limit(1))[0];
       await tx
@@ -44,5 +48,6 @@ export async function saveSetting(key: SettingKey, input: unknown) {
       });
     });
     revalidatePath("/admin/settings");
+    if (key === "toolchain") revalidatePath("/admin/tools");
   });
 }
