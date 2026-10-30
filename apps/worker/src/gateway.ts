@@ -1,20 +1,16 @@
 import http from "node:http";
 import { and, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
-  BILLING_TIME_ZONE,
   decrypt,
   hashToken,
   parseWorkspaceHost,
-  planGate,
   ports,
   randomToken,
   signGatewayIdentity,
-  type PlanGateResult,
   type ServiceName,
 } from "@agentbox/core";
 import { readSetting } from "@agentbox/db/client";
 import {
-  creditBalances,
   handoffCodes,
   hostStats,
   plans,
@@ -32,6 +28,7 @@ import {
   trialEndedPage,
   wakingPage,
 } from "./html.ts";
+import { loadStartGate } from "./billing.ts";
 import { errMessage } from "./log.ts";
 import { enqueueJob } from "./queue.ts";
 import type { Ctx } from "./types.ts";
@@ -218,37 +215,7 @@ export function createGateway(ctx: Ctx): http.RequestListener {
     }
   }
 
-  async function canStart(
-    userId: string,
-  ): Promise<
-    | { gate: PlanGateResult; memoryLimitMb: number; dailyRuntimeHours: number | null }
-    | { gate: null; memoryLimitMb: 0; dailyRuntimeHours: null }
-  > {
-    const [row] = await db
-      .select({
-        plan: plans,
-        sub: subscriptions,
-        balance: creditBalances.balanceMicro,
-      })
-      .from(subscriptions)
-      .innerJoin(plans, eq(plans.id, subscriptions.planId))
-      .leftJoin(creditBalances, eq(creditBalances.userId, subscriptions.userId))
-      .where(eq(subscriptions.userId, userId))
-      .limit(1);
-    if (!row) return { gate: null, memoryLimitMb: 0, dailyRuntimeHours: null };
-    const gate = planGate({
-      plan: row.plan,
-      subscription: row.sub,
-      balanceMicro: row.balance ?? 0n,
-      now: ctx.now(),
-      timeZone: BILLING_TIME_ZONE,
-    });
-    return {
-      gate,
-      memoryLimitMb: row.plan.memoryLimitMb,
-      dailyRuntimeHours: row.plan.dailyRuntimeHours,
-    };
-  }
+  const canStart = (userId: string) => loadStartGate(ctx, userId);
 
   async function overCapacity(thisMemoryMb: number): Promise<boolean> {
     const [hs] = await db

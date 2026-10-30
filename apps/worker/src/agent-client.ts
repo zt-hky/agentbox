@@ -1,5 +1,5 @@
 import http from "node:http";
-import type { z } from "zod";
+import { z } from "zod";
 import { copilotLoginStateSchema, type CopilotLoginState } from "@agentbox/core/accounts";
 import {
   buildImageResponseSchema,
@@ -21,6 +21,16 @@ import {
   type WorkspaceLogResponse,
   type WorkspaceTopResponse,
 } from "@agentbox/core/agent-api";
+import {
+  toolchainRunResponseSchema,
+  toolchainStateResponseSchema,
+  type ToolchainApplyRequest,
+  type ToolchainRunResponse,
+  type ToolchainStateResponse,
+} from "@agentbox/core/toolchain";
+
+/** Toolchain apply/cancel acknowledge with any JSON object; only the status code matters. */
+const ackSchema = z.object({}).loose();
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
 export const BUILD_TIMEOUT_MS = 2 * 60 * 60 * 1000;
@@ -54,6 +64,10 @@ export interface AgentClient {
   buildImage(req: BuildImageRequest): Promise<BuildImageResponse>;
   buildLog(jobId: string, tail: number): Promise<string>;
   deleteImage(imageId: string): Promise<void>;
+  toolchainApply(ws: string, req: ToolchainApplyRequest): Promise<void>;
+  toolchainRun(ws: string, runId: string, offset: number): Promise<ToolchainRunResponse>;
+  toolchainState(ws: string): Promise<ToolchainStateResponse>;
+  toolchainCancel(ws: string, runId: string): Promise<void>;
 }
 
 export interface AgentClientOptions {
@@ -223,6 +237,33 @@ export function createAgentClient(opts: AgentClientOptions): AgentClient {
     },
     async deleteImage(imageId) {
       await call("DELETE", `/v1/images/${seg(imageId)}`, undefined, okResponseSchema);
+    },
+    async toolchainApply(ws, req) {
+      await call("POST", `/v1/workspaces/${seg(ws)}/toolchain/apply`, req, ackSchema);
+    },
+    toolchainRun(ws, runId, offset) {
+      return call(
+        "GET",
+        `/v1/workspaces/${seg(ws)}/toolchain/runs/${seg(runId)}?offset=${offset}`,
+        undefined,
+        toolchainRunResponseSchema,
+      );
+    },
+    toolchainState(ws) {
+      return call(
+        "GET",
+        `/v1/workspaces/${seg(ws)}/toolchain/state`,
+        undefined,
+        toolchainStateResponseSchema,
+      );
+    },
+    async toolchainCancel(ws, runId) {
+      await call(
+        "POST",
+        `/v1/workspaces/${seg(ws)}/toolchain/runs/${seg(runId)}/cancel`,
+        {},
+        ackSchema,
+      );
     },
   };
 }

@@ -2,6 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type {
+  ObservedTool,
+  StepRecord,
+  ToolchainApplyRequest,
+  ToolchainRunResponse,
+} from "@agentbox/core/toolchain";
 
 export interface FakeCall {
   method: string;
@@ -16,8 +22,44 @@ export type RouteFn = (call: FakeCall) => Reply | Promise<Reply>;
 export const TOKEN = "test-agent-token";
 export const IMAGE_ID = "a".repeat(64);
 
+/** What the fake agent reports for one toolchain run. */
+export interface ToolchainScriptReply {
+  /** HTTP status for the apply call (409 / 422 / 507 simulate the agent refusing the run). */
+  applyStatus?: number;
+  applyError?: string;
+  /** Run state reported by `GET .../runs/:id` (default `finished`; `running` never ends). */
+  state?: ToolchainRunResponse["state"];
+  log?: string;
+  steps?: StepRecord[];
+  /** Overrides the observed tools in the final result (default: derived from ok steps). */
+  tools?: Record<string, ObservedTool>;
+}
+export type ToolchainScript = (
+  req: ToolchainApplyRequest,
+) => ToolchainScriptReply | Promise<ToolchainScriptReply>;
+
+/** Default script: every step succeeds with its requested version. */
+export const okToolchainScript: ToolchainScript = (req) => ({
+  log: `run ${req.runId} (${req.mode})\n`,
+  steps: req.steps.map((s) => ({
+    tool: s.tool,
+    action: s.action,
+    status: "ok" as const,
+    version: s.version,
+    previous: null,
+    backend: s.backends[0]?.spec ?? null,
+    sizeBytes: 1000,
+    observed: s.action === "verify" ? `${s.tool} 1.0.0` : null,
+    path: s.action === "verify" ? `/usr/bin/${s.tool}` : null,
+  })),
+});
+
 export interface FakeAgent {
   socketPath: string;
+  /** Script the toolchain routes; `calls` lists every apply request in `applies`. */
+  toolchain: { script: ToolchainScript; applies: ToolchainApplyRequest[]; cancelled: string[] };
+  /** Toolchain state returned by `GET .../toolchain/state`. */
+  toolchainState: { hasMise: boolean; toolchainAbi: string | null };
   calls: FakeCall[];
   /** Override the reply for `METHOD /path` (exact path, no query). */
   on(route: string, fn: RouteFn | Reply): void;
@@ -53,6 +95,79 @@ export async function startFakeAgent(): Promise<FakeAgent> {
   const calls: FakeCall[] = [];
   const routes = new Map<string, RouteFn | Reply>();
   const sockets = new Set<import("node:net").Socket>();
+  const toolchain: FakeAgent["toolchain"] = {
+    script: okToolchainScript,
+    applies: [],
+    cancelled: [],
+  };
+  const toolchainState: FakeAgent["toolchainState"] = {
+    hasMise: true,
+    toolchainAbi: "ubuntu-26.04",
+  };
+  const toolchainRuns = new Map<
+    string,
+    { req: ToolchainApplyRequest; reply: ToolchainScriptReply }
+  >();
+
+  async function toolchainReply(call: FakeCall): Promise<Reply | null> {
+    const base = /^\/v1\/workspaces\/[^/]+\/toolchain/;
+    if (!base.test(call.path)) return null;
+    if (call.method === "POST" && call.path.endsWith("/toolchain/apply")) {
+      const req = call.body as ToolchainApplyRequest;
+      const reply = await toolchain.script(req);
+      toolchain.applies.push(req);
+      if (reply.applyStatus) {
+        return { status: reply.applyStatus, json: { error: reply.applyError ?? "refused" } };
+      }
+      toolchainRuns.set(req.runId, { req, reply });
+      return { json: { ok: true } };
+    }
+    if (call.method === "POST" && call.path.endsWith("/cancel")) {
+      toolchain.cancelled.push(call.path.split("/").at(-2) ?? "");
+      return { json: { ok: true } };
+    }
+    if (call.method === "GET" && call.path.endsWith("/toolchain/state")) {
+      return { json: { tools: {}, image: { ...toolchainState, envVersion: 1 } } };
+    }
+    const m = /\/toolchain\/runs\/([^/]+)$/.exec(call.path);
+    if (call.method === "GET" && m) {
+      const run = toolchainRuns.get(m[1] as string);
+      if (!run) return { status: 404, json: { error: "unknown run" } };
+      const { reply } = run;
+      const state = reply.state ?? "finished";
+      const offset = Number(new URLSearchParams(call.query).get("offset") ?? 0);
+      const log = reply.log ?? "";
+      const steps = reply.steps ?? [];
+      const tools: Record<string, ObservedTool> = { ...reply.tools };
+      if (!reply.tools) {
+        for (const s of steps) {
+          if (s.status === "ok" && s.action !== "verify" && s.action !== "remove" && s.version) {
+            tools[s.tool] = {
+              version: s.version,
+              previous: s.previous ?? null,
+              backend: s.backend ?? "node",
+              bins: [s.tool],
+              sizeBytes: s.sizeBytes ?? 0,
+              installedAt: "2026-03-10T12:00:00.000Z",
+              observed: `${s.tool} ${s.version}`,
+            };
+          }
+        }
+      }
+      const body: ToolchainRunResponse = {
+        state,
+        log: log.slice(offset),
+        nextOffset: log.length,
+        steps,
+        result:
+          state === "finished"
+            ? { exitCode: 0, finishedAt: "2026-03-10T12:00:00.000Z", steps, tools }
+            : null,
+      };
+      return { json: body };
+    }
+    return null;
+  }
 
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -75,7 +190,9 @@ export async function startFakeAgent(): Promise<FakeAgent> {
         }
         const r = routes.get(`${call.method} ${call.path}`);
         const reply: Reply =
-          typeof r === "function" ? await r(call) : (r ?? defaultReply(call.method, call.path));
+          typeof r === "function"
+            ? await r(call)
+            : (r ?? (await toolchainReply(call)) ?? defaultReply(call.method, call.path));
         if (reply === "hang") return;
         res.writeHead(reply.status ?? 200, { "content-type": "application/json" });
         res.end(JSON.stringify(reply.json ?? { ok: true }));
@@ -90,6 +207,8 @@ export async function startFakeAgent(): Promise<FakeAgent> {
 
   return {
     socketPath,
+    toolchain,
+    toolchainState,
     calls,
     on: (route, fn) => void routes.set(route, fn),
     callsTo: (route) => calls.filter((c) => `${c.method} ${c.path}` === route),

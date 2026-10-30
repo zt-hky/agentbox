@@ -24,6 +24,7 @@ import { AgentError } from "./agent-client.ts";
 import { errMessage } from "./log.ts";
 import { reconcileCopilot, startCopilotLogin } from "./accounts.ts";
 import { addEvent } from "./queue.ts";
+import { reconcileAfterStart, reconcileToolchain } from "./toolchain.ts";
 import type { Ctx } from "./types.ts";
 
 export const MAX_ATTEMPTS = 3;
@@ -73,7 +74,11 @@ const stopPayloadSchema = z.object({
     "suspended",
   ]),
 });
-const buildPayloadSchema = z.object({ imageRowId: z.uuid(), t3Ref: z.string().min(1) });
+const buildPayloadSchema = z.object({
+  imageRowId: z.uuid(),
+  t3Ref: z.string().min(1),
+  slim: z.boolean().optional(),
+});
 const deleteImagePayloadSchema = z.object({ imageRowId: z.uuid() });
 
 async function loadTenant(ctx: Ctx, job: JobRow) {
@@ -219,6 +224,7 @@ async function startWorkspace(
       }
     }
   }
+  await reconcileAfterStart(ctx, ws.id);
 }
 
 async function stopWorkspace(
@@ -330,10 +336,14 @@ export const handlers: Record<JobRow["type"], Handler> = {
   },
 
   async build_image(ctx, job) {
-    const { imageRowId, t3Ref } = buildPayloadSchema.parse(job.payload);
+    const { imageRowId, t3Ref, slim } = buildPayloadSchema.parse(job.payload);
     const timer = setInterval(() => void tailBuildLog(ctx, job.id, imageRowId), BUILD_LOG_POLL_MS);
     try {
-      const out = await ctx.agent.buildImage({ jobId: job.id, t3Ref });
+      const out = await ctx.agent.buildImage({
+        jobId: job.id,
+        t3Ref,
+        ...(slim === undefined ? {} : { slim }),
+      });
       const log = await tailBuildLog(ctx, job.id, imageRowId);
       await ctx.db
         .update(images)
@@ -341,6 +351,7 @@ export const handlers: Record<JobRow["type"], Handler> = {
           imageId: out.imageId,
           rootfsPath: `${ROOTFS_DIR}/${out.imageId}`,
           scanSummary: out.scanSummary,
+          ...(out.manifest ? { manifest: out.manifest } : {}),
           status: "ready",
           ...(log === null ? {} : { buildLog: log }),
         })
@@ -397,6 +408,8 @@ export const handlers: Record<JobRow["type"], Handler> = {
       .set({ status: "retired", rootfsPath: null })
       .where(eq(images.id, imageRowId));
   },
+
+  reconcile_toolchain: (ctx, job) => reconcileToolchain(ctx, job),
 };
 
 export class JobRunner {

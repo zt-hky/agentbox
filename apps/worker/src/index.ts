@@ -6,6 +6,7 @@ import { loadConfig } from "./config.ts";
 import { startCycleLoop } from "./cycle.ts";
 import { createGateway } from "./gateway.ts";
 import { JobRunner } from "./jobs.ts";
+import { startLatestLoop } from "./latest.ts";
 import { createLogger, errMessage } from "./log.ts";
 import { startMeteringLoop } from "./metering.ts";
 import type { Ctx } from "./types.ts";
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
   const stopCopilotLogins = startCopilotLoginLoop(ctx);
   const stopMetering = startMeteringLoop(ctx);
   const stopCycle = startCycleLoop(ctx);
+  const stopLatest = startLatestLoop(ctx);
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
@@ -51,6 +53,7 @@ async function main(): Promise<void> {
     log.info("shutting down", { signal });
     stopMetering();
     stopCycle();
+    stopLatest();
     server.close();
     server.closeIdleConnections();
     const left = await runner.stop(SHUTDOWN_GRACE_MS);
