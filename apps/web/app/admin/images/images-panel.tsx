@@ -26,7 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { ActionResult } from "@/lib/action";
 import type { ImageVersions } from "@/lib/admin/system";
-import { shortImageId, workspaceImageState, type ImageOption } from "@/lib/admin/image-view";
+import { shortImageId, type ImageOption } from "@/lib/admin/image-view";
 import type { ImageUsage, WorkspaceImageRef } from "@/lib/admin/images-ops";
 import { formatDateTime } from "@/lib/format";
 import {
