@@ -8,7 +8,6 @@ import { guard } from "@/lib/action";
 import { adminContext } from "@/lib/admin";
 import { grantAccess, recreateWorkspace } from "@/lib/approve";
 import { writeAudit } from "@/lib/audit";
-import { encryptionKey } from "@/lib/env";
 import { UserError } from "@/lib/errors";
 import { grantSchema, rejectSchema } from "@/lib/schemas";
 import type { z } from "zod";
@@ -23,13 +22,12 @@ export async function grantUserAccess(input: z.input<typeof grantSchema>) {
       adminId: admin.id,
       slug: parsed.data.slug,
       planId: parsed.data.planId,
-      encryptionKey: encryptionKey(),
       ip,
     });
     revalidatePath("/admin/requests");
     revalidatePath(`/admin/users/${parsed.data.userId}`);
     revalidatePath("/admin/users");
-    return { slug: parsed.data.slug, slot: result.slot };
+    return { slug: result.slug };
   });
 }
 
@@ -44,14 +42,13 @@ export async function recreateUserWorkspace(input: z.input<typeof grantSchema>) 
       adminId: admin.id,
       slug: parsed.data.slug,
       planId: parsed.data.planId,
-      encryptionKey: encryptionKey(),
       ip,
     });
     revalidatePath("/admin/workspaces");
     revalidatePath(`/admin/workspaces/${parsed.data.slug}`);
     revalidatePath(`/admin/users/${parsed.data.userId}`);
     revalidatePath("/admin/users");
-    return { slug: parsed.data.slug, slot: result.slot };
+    return { slug: result.slug };
   });
 }
 

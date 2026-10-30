@@ -32,6 +32,20 @@ export async function requireActiveUser(): Promise<AppSession> {
   return s;
 }
 
+/** Active and onboarded: everything but onboarding itself (dashboard, tools, billing, settings). */
+export async function requireOnboardedUser(): Promise<AppSession> {
+  const s = await requireActiveUser();
+  if (!s.user.onboardedAt) redirect("/onboarding");
+  return s;
+}
+
+/** Active but not yet onboarded: the onboarding wizard. Finished users go to the dashboard. */
+export async function requireOnboardingUser(): Promise<AppSession> {
+  const s = await requireActiveUser();
+  if (s.user.onboardedAt) redirect("/");
+  return s;
+}
+
 /** Admin gate for every admin layout and server action. */
 export async function requireAdmin(): Promise<AppSession> {
   const s = await requireUser();

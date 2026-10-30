@@ -32,6 +32,8 @@ export async function seedWorld(
     status?: (typeof workspaces.$inferInsert)["status"];
     balance?: bigint;
     access?: (typeof user.$inferInsert)["accessStatus"];
+    /** Default true: users who finished onboarding (the gateway refuses everyone else). */
+    onboarded?: boolean;
     now?: Date;
     cycleEnd?: Date;
     workspace?: Partial<typeof workspaces.$inferInsert>;
@@ -51,6 +53,7 @@ export async function seedWorld(
     email,
     emailVerified: true,
     accessStatus: o.access ?? "active",
+    onboardedAt: o.onboarded === false ? null : now,
   });
   const [sub] = await db
     .insert(subscriptions)

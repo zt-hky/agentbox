@@ -4,6 +4,7 @@ import {
   COPILOT_DEVICE_URL,
   type CopilotLoginState,
 } from "@agentbox/core/accounts";
+import { renderSecretsEnv } from "@agentbox/core/agent-credentials";
 import { HttpError } from "./errors.ts";
 import type { RunResult } from "./exec.ts";
 import { lastLines } from "./safe.ts";
@@ -284,4 +285,20 @@ export async function ghDisconnect(exec: ContainerExec): Promise<void> {
     throw new HttpError(500, `gh auth logout failed (${r.code}): ${r.stderr.trim().slice(0, 300)}`);
   }
   await removeGhCredentialHelpers(exec);
+}
+
+/** Atomic 0600 write of `~/.agentbox/secrets.env` (sourced by env.sh); the value arrives on stdin. */
+const WRITE_SECRETS_ENV = bash(
+  [
+    'd="$HOME/.agentbox"; mkdir -p "$d"; chmod 700 "$d"; umask 077;',
+    't="$d/secrets.env.$$"; cat > "$t" && chmod 600 "$t" && mv -f "$t" "$d/secrets.env"',
+  ].join(" "),
+);
+
+/** Replace the workspace's agent credentials with `keys` (env var -> value); `{}` clears them. */
+export async function writeAgentKeys(
+  exec: ContainerExec,
+  keys: Readonly<Record<string, string>>,
+): Promise<void> {
+  await exec(WRITE_SECRETS_ENV, { input: renderSecretsEnv(keys), redact: Object.values(keys) });
 }

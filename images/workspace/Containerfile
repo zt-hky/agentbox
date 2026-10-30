@@ -1,6 +1,8 @@
 # AgentBox workspace image. Build with --no-cache for production so every
 # "latest" below re-resolves:
-#   podman build --pull=always --no-cache --build-arg T3_REF=omp-overlay -t localhost/agentbox-workspace:<tag> .
+#   podman build --pull=always --no-cache --build-arg T3_REF=omp-overlay -t localhost/agentbox-workspace:<NNN> .
+# <NNN> is the build number, zero-padded to 3 digits (001, 002, ...). The admin console allocates it
+# (images.version) and the agent applies the tag; never use a free-form tag. See docs/images.md.
 # Base digests were resolved with `podman pull` + `podman image inspect --format '{{.Digest}}'`.
 #
 # Every multi-step RUN is a `bash -euo pipefail` heredoc: SHELL is ignored by
@@ -77,8 +79,9 @@ SH
 # final
 # ---------------------------------------------------------------------------
 FROM ${UBUNTU_IMAGE}
-# SLIM=1 skips Node, Codex, Claude Code and Oh My Pi: workspaces install their own through mise.
-ARG SLIM=0
+# Slim only: this image carries T3 Code, VS Code (code-server) and the plumbing the per-workspace
+# toolchain needs (mise, uv, gh, apt basics). Node, agent CLIs and every other language runtime are
+# installed by the users themselves through the toolchain (docs/toolchain.md).
 ARG MISE_VERSION=2026.10.23
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=en_US.UTF-8 \
@@ -105,22 +108,6 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubc
 apt-get update
 apt-get install -y --no-install-recommends gh
 rm -rf /var/lib/apt/lists/*
-SH
-
-# Node 24 LTS (latest v24.x), checksum-verified.
-RUN bash -euo pipefail <<'SH'
-if [ "$SLIM" = 1 ]; then
-  echo "SLIM=1: skipping"
-  exit 0
-fi
-cd /tmp
-curl -fsSLO https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt
-f="$(grep -o 'node-v[0-9.]*-linux-x64\.tar\.xz' SHASUMS256.txt | head -n1)"
-curl -fsSLO "https://nodejs.org/dist/latest-v24.x/${f}"
-grep " ${f}\$" SHASUMS256.txt | sha256sum -c -
-tar -xJf "${f}" -C /usr/local --strip-components=1 --no-same-owner \
-  --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md'
-rm -f "${f}" SHASUMS256.txt
 SH
 
 # uv, checksum-verified.
@@ -160,48 +147,6 @@ apt-get install -y --no-install-recommends ./code-server.deb
 rm -rf code-server.deb /var/lib/apt/lists/*
 SH
 
-# Codex CLI.
-RUN bash -euo pipefail <<'SH'
-if [ "$SLIM" = 1 ]; then
-  echo "SLIM=1: skipping"
-  exit 0
-fi
-npm install -g @openai/codex@latest
-npm cache clean --force
-SH
-
-# Claude Code (native installer; HOME=/opt/claude keeps it out of tenant homes).
-RUN bash -euo pipefail <<'SH'
-if [ "$SLIM" = 1 ]; then
-  echo "SLIM=1: skipping"
-  exit 0
-fi
-mkdir -p /opt/claude
-HOME=/opt/claude bash -c 'curl -fsSL https://claude.ai/install.sh | bash'
-chmod -R a+rX /opt/claude
-ln -s "$(readlink -f /opt/claude/.local/bin/claude)" /usr/local/bin/claude
-claude --version
-SH
-
-# Oh My Pi: prebuilt binary, falling back to the npm package.
-RUN bash -euo pipefail <<'SH'
-if [ "$SLIM" = 1 ]; then
-  echo "SLIM=1: skipping"
-  exit 0
-fi
-mkdir -p /opt/omp
-if HOME=/opt/omp sh -c 'curl -fsSL https://omp.sh/install | sh -s -- --binary' \
-    && install -m 0755 /opt/omp/.local/bin/omp /usr/local/bin/omp; then
-  echo "omp installed from binary release"
-else
-  echo "omp binary install failed; falling back to npm" >&2
-  npm install -g @oh-my-pi/pi-coding-agent@latest
-fi
-rm -rf /opt/omp
-npm cache clean --force
-omp --version
-SH
-
 COPY --from=t3build /opt/t3 /opt/t3
 COPY --from=t3build /t3-source.json /opt/agentbox/t3-source.json
 RUN ln -s /opt/t3/t3 /usr/local/bin/t3
@@ -238,27 +183,18 @@ SH
 # Resolved tool versions, recorded for the admin image list and the toolchain manifest.
 RUN bash -euo pipefail <<'SH'
 first() { "$@" 2>&1 | head -n1; }
-# Only record what is present: a slim image has no node, codex, claude or omp.
-have() { command -v "$1" >/dev/null 2>&1 && first "$@" --version || true; }
 . /etc/os-release
-slim=false
-[ "$SLIM" = 1 ] && slim=true
 jq -n \
   --slurpfile t3src /opt/agentbox/t3-source.json \
   --arg t3 "$(first t3 --version)" \
-  --arg node "$(command -v node >/dev/null && node --version || true)" \
   --arg codeServer "$(code-server --version 2>&1 | grep -E '^[0-9]' | head -n1)" \
-  --arg codex "$(have codex)" \
-  --arg claude "$(have claude)" \
-  --arg omp "$(have omp)" \
   --arg gh "$(first gh --version)" \
   --arg uv "$(first uv --version)" \
   --arg mise "$(first mise --version)" \
   --arg abi "${ID}-${VERSION_ID}" \
-  --argjson slim "$slim" \
   '{t3: {ref: $t3src[0].ref, commit: $t3src[0].commit, version: $t3},
-    node: $node, "code-server": $codeServer, codex: $codex, claude: $claude,
-    omp: $omp, gh: $gh, uv: $uv, mise: $mise, toolchainAbi: $abi, envVersion: 1, slim: $slim}
+    "code-server": $codeServer, gh: $gh, uv: $uv, mise: $mise,
+    toolchainAbi: $abi, envVersion: 1, slim: true}
    | with_entries(select(.value != ""))' > /opt/agentbox/versions.json
 rm /opt/agentbox/t3-source.json
 cat /opt/agentbox/versions.json

@@ -70,7 +70,7 @@ export function LoginForm({
         </form>
       )}
       <p className="text-meta text-muted-foreground">
-        New accounts are reviewed by an administrator before a workspace is created.
+        New accounts are reviewed by an administrator before they can create a workspace.
       </p>
     </div>
   );

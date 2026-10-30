@@ -7,6 +7,8 @@ export interface HandoffUser {
   id: string;
   role?: string | null;
   accessStatus?: string | null;
+  /** `null` = has not finished onboarding (owners cannot open their workspace yet). */
+  onboardedAt?: Date | null;
 }
 export interface HandoffWorkspace {
   id: string;
@@ -42,7 +44,16 @@ export function decideHandoff(input: {
   if (!workspace || workspace.slug !== parsed.ws || workspace.status === "deleted") {
     return { action: "deny", status: 404, reason: "Workspace not found" };
   }
-  if (workspace.userId === user.id) return { action: "issue", host, ws: parsed.ws };
+  if (workspace.userId === user.id) {
+    if (user.onboardedAt === null) {
+      return {
+        action: "deny",
+        status: 403,
+        reason: "Finish onboarding before opening your workspace",
+      };
+    }
+    return { action: "issue", host, ws: parsed.ws };
+  }
   if (user.role === "admin") return { action: "confirm", host, ws: parsed.ws };
   return { action: "deny", status: 403, reason: "Not your workspace" };
 }

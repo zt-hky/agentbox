@@ -9,6 +9,7 @@ import {
   type LatestInfo,
   type ToolDefault,
   type ToolId,
+  type ToolKind,
   type ToolState,
 } from "@agentbox/core/toolchain";
 import {
@@ -56,7 +57,7 @@ export interface FleetRow {
 export interface CatalogAdminRow {
   toolId: ToolId;
   label: string;
-  kind: "runtime" | "agent";
+  kind: ToolKind;
   channels: Channel[];
   disabled: boolean;
   /** Default install channel, null when the tool is not installed by default. */

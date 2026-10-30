@@ -33,6 +33,7 @@ export default async function ToolsPage() {
   const { workspace, tools, run } = view;
   const asleep = workspace.status !== "running" && workspace.status !== "starting";
   const runtimes = tools.filter((t) => t.kind === "runtime");
+  const managers = tools.filter((t) => t.kind === "package-manager");
   const agents = tools.filter((t) => t.kind === "agent");
   const upgradable = tools.filter((t) => t.canUpgrade).length;
   const failed = tools.some((t) => t.state === "failed" && t.desired);
@@ -78,6 +79,13 @@ export default async function ToolsPage() {
         bodyClassName="p-0"
       >
         <ToolsTable tools={runtimes} asleep={asleep} empty="No runtimes are available." />
+      </Section>
+      <Section
+        title="Package managers"
+        description="Each installs on top of its language and needs that language installed first. npm, pip, Cargo and Go modules come with their language."
+        bodyClassName="p-0"
+      >
+        <ToolsTable tools={managers} asleep={asleep} empty="No package managers are available." />
       </Section>
       <Section title="Agent CLIs" bodyClassName="p-0">
         <ToolsTable tools={agents} asleep={asleep} empty="No agent CLIs are available." />

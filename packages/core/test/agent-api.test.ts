@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentKeysRequestSchema,
+  deleteTenantQuerySchema,
   buildImageRequestSchema,
   buildImageResponseSchema,
   createTenantRequestSchema,
@@ -87,7 +89,31 @@ describe("agent-api request schemas", () => {
     ],
     ["github ok", githubConnectRequestSchema, { token: "t", login: "l", email: "e@x.y" }, true],
     ["github missing token", githubConnectRequestSchema, { login: "l", email: "e" }, false],
-    ["build ok", buildImageRequestSchema, { jobId: "job-1", t3Ref: "omp-overlay" }, true],
+    [
+      "build ok",
+      buildImageRequestSchema,
+      { jobId: "job-1", t3Ref: "omp-overlay", version: 7 },
+      true,
+    ],
+    ["build needs a version", buildImageRequestSchema, { jobId: "job-1", t3Ref: "main" }, false],
+    [
+      "build version beyond 3 digits",
+      buildImageRequestSchema,
+      { jobId: "job-1", t3Ref: "main", version: 1000 },
+      false,
+    ],
+    [
+      "build version zero",
+      buildImageRequestSchema,
+      { jobId: "job-1", t3Ref: "main", version: 0 },
+      false,
+    ],
+    ["agent keys ok", agentKeysRequestSchema, { keys: { OPENAI_API_KEY: "sk-1" } }, true],
+    ["agent keys empty set clears", agentKeysRequestSchema, { keys: {} }, true],
+    ["agent keys bad name", agentKeysRequestSchema, { keys: { "a b": "x" } }, false],
+    ["agent keys multi-line value", agentKeysRequestSchema, { keys: { A: "x\ny" } }, false],
+    ["delete keepData 1", deleteTenantQuerySchema, { keepData: "1" }, true],
+    ["delete keepData junk", deleteTenantQuerySchema, { keepData: "yes" }, false],
     [
       "build ref with option injection",
       buildImageRequestSchema,
@@ -199,5 +225,13 @@ describe("tenantLimits inodes", () => {
       updateLimitsRequestSchema.parse({ diskGb: 10, limits: { ...rest, inodes: 500_000 } }).limits
         .inodes,
     ).toBe(500_000);
+  });
+});
+
+describe("deleteTenantQuerySchema", () => {
+  it("defaults to wiping and parses keepData", () => {
+    expect(deleteTenantQuerySchema.parse({})).toEqual({ keepData: false });
+    expect(deleteTenantQuerySchema.parse({ keepData: "0" })).toEqual({ keepData: false });
+    expect(deleteTenantQuerySchema.parse({ keepData: "1" })).toEqual({ keepData: true });
   });
 });

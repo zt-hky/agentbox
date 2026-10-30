@@ -6,11 +6,11 @@ import { z } from "zod";
 import { db } from "@agentbox/db/client";
 import { workspaceSessions } from "@agentbox/db/schema";
 import { guard } from "@/lib/action";
-import { requireActiveUser } from "@/lib/session";
+import { requireOnboardedUser } from "@/lib/session";
 
 export async function revokeSession(id: string) {
   return guard(async () => {
-    const { user } = await requireActiveUser();
+    const { user } = await requireOnboardedUser();
     const sessionId = z.uuid().parse(id);
     await db
       .update(workspaceSessions)
@@ -28,7 +28,7 @@ export async function revokeSession(id: string) {
 
 export async function revokeAllSessions() {
   return guard(async () => {
-    const { user } = await requireActiveUser();
+    const { user } = await requireOnboardedUser();
     await db
       .update(workspaceSessions)
       .set({ revokedAt: new Date() })

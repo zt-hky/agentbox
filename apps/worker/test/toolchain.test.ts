@@ -23,6 +23,9 @@ import {
 } from "./helpers/fake-agent.ts";
 import { seedWorld } from "./helpers/seed.ts";
 
+let imageVersionCounter = 0;
+const nextImageVersion = () => ++imageVersionCounter;
+
 let t: TestDb;
 let agent: FakeAgent;
 // DB defaults use the wall clock; keep the injected clock slightly ahead so jobs are due.
@@ -462,7 +465,13 @@ describe("reconcile_toolchain: interruption", () => {
       .where(eq(workspaces.id, w.workspaceId));
     await t.db
       .insert(images)
-      .values({ imageId: IMAGE_ID, rootfsPath: "/r", t3Ref: "m", status: "active" });
+      .values({
+        version: nextImageVersion(),
+        imageId: IMAGE_ID,
+        rootfsPath: "/r",
+        t3Ref: "m",
+        status: "active",
+      });
     await enqueueJob(t.db, { type: "start_workspace", workspaceId: w.workspaceId });
     await t.db.update(jobs).set({ runAfter: clock.now() });
     await runAll(); // start (+ hook)
@@ -531,7 +540,14 @@ describe("reconcile_toolchain: auto-start", () => {
     const w = await seedWorld(t.db, { status: "sleeping" });
     await t.db
       .insert(images)
-      .values({ imageId: IMAGE_ID, rootfsPath: "/r", t3Ref: "m", status: "active", manifest });
+      .values({
+        version: nextImageVersion(),
+        imageId: IMAGE_ID,
+        rootfsPath: "/r",
+        t3Ref: "m",
+        status: "active",
+        manifest,
+      });
     await addTool(w.workspaceId, "bun");
     await latest("bun", { latest: "1.3.4", versions: ["1.3.4"] });
     const { runId } = await requestReconcile(t.db, { workspaceId: w.workspaceId, trigger: "user" });
@@ -626,7 +642,14 @@ describe("start hook", () => {
     const w = await seedWorld(t.db, { status: "sleeping", workspace: ws0 });
     await t.db
       .insert(images)
-      .values({ imageId: IMAGE_ID, rootfsPath: "/r", t3Ref: "m", status: "active", manifest });
+      .values({
+        version: nextImageVersion(),
+        imageId: IMAGE_ID,
+        rootfsPath: "/r",
+        t3Ref: "m",
+        status: "active",
+        manifest,
+      });
     await t.db
       .insert(jobs)
       .values({ type: "start_workspace", workspaceId: w.workspaceId, runAfter: clock.now() });
@@ -654,13 +677,16 @@ describe("start hook", () => {
 
   it("never fails the start when the hook breaks", async () => {
     const w = await seedWorld(t.db, { status: "sleeping" });
-    await t.db.insert(images).values({
-      imageId: IMAGE_ID,
-      rootfsPath: "/r",
-      t3Ref: "m",
-      status: "active",
-      manifest: mise,
-    });
+    await t.db
+      .insert(images)
+      .values({
+        version: nextImageVersion(),
+        imageId: IMAGE_ID,
+        rootfsPath: "/r",
+        t3Ref: "m",
+        status: "active",
+        manifest: mise,
+      });
     await t.db
       .insert(jobs)
       .values({ type: "start_workspace", workspaceId: w.workspaceId, runAfter: clock.now() });

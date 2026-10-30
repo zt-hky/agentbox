@@ -20,14 +20,21 @@ export async function enqueueWorkspaceJob(
         type:
           | "provision_tenant"
           | "start_workspace"
-          | "delete_tenant"
+          | "restart_workspace"
           | "update_limits"
           | "sync_github"
+          | "sync_agent_keys"
           | "copilot_login";
       }
+    | { type: "delete_tenant"; keepData?: boolean }
     | { type: "stop_workspace"; reason: StopReason },
 ): Promise<void> {
-  const payload = job.type === "stop_workspace" ? { reason: job.reason } : {};
+  const payload =
+    job.type === "stop_workspace"
+      ? { reason: job.reason }
+      : job.type === "delete_tenant"
+        ? { keepData: job.keepData === true }
+        : {};
   await database
     .insert(jobs)
     .values({ type: job.type, workspaceId, payload })

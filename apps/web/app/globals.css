@@ -225,3 +225,120 @@
     radial-gradient(60rem 36rem at 80% -10%, rgb(109 94 252 / 0.28), transparent 60%),
     radial-gradient(40rem 26rem at 10% 110%, rgb(70 230 195 / 0.1), transparent 60%), #05070e;
 }
+
+/*
+ * Chain motion: the one place rich animation is allowed (onboarding and tool install, remove and
+ * upgrade progress, see DESIGN.md "Motion exception"). Blocks link up one after another; only the
+ * active block pulses, and everything stops when the operation ends (no `.chain-active` class).
+ * The global reduced-motion rule above also covers these.
+ */
+@keyframes chain-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes chain-link {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes chain-flow {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 24px 0;
+  }
+}
+@keyframes chain-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 40%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+@keyframes chain-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.chain-reveal {
+  animation: chain-reveal 360ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+.chain-block[data-state="active"] {
+  border-color: var(--primary);
+  animation: chain-pulse 1.4s ease-out infinite;
+}
+.chain-block[data-state="done"] {
+  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+}
+.chain-block[data-state="failed"] {
+  border-color: var(--status-error);
+}
+.chain-link {
+  position: relative;
+  height: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.chain-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  background: var(--primary);
+  transform: scaleX(0);
+}
+.chain-link[data-state="done"]::after {
+  animation: chain-link 420ms ease-out forwards;
+}
+.chain-link[data-state="active"]::after {
+  transform: scaleX(1);
+  background: repeating-linear-gradient(90deg, var(--primary) 0 8px, transparent 8px 16px);
+  background-size: 24px 2px;
+  animation: chain-flow 600ms linear infinite;
+}
+.chain-link[data-state="failed"]::after {
+  transform: scaleX(1);
+  background: var(--status-error);
+}
+.chain-bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--border);
+}
+.chain-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 500ms ease-out;
+}
+.chain-bar[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--signal) 55%, transparent),
+    transparent
+  );
+  animation: chain-sweep 1.2s ease-in-out infinite;
+}

@@ -25,6 +25,30 @@ export const tenantLimitsSchema = z.object({
 });
 export type TenantLimits = z.infer<typeof tenantLimitsSchema>;
 
+/** DELETE /v1/tenants/:ws?keepData=1: keep the tenant home (configs, /workspace) instead of wiping it. */
+export const deleteTenantQuerySchema = z.object({
+  keepData: z
+    .enum(["0", "1"])
+    .default("0")
+    .transform((v) => v === "1"),
+});
+
+/** PUT /v1/workspaces/:ws/agent-keys: the complete set of agent credentials (env var -> value). */
+export const AGENT_KEYS_MAX = 32;
+export const agentKeysRequestSchema = z.object({
+  keys: z
+    .record(
+      z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/),
+      z
+        .string()
+        .min(1)
+        .max(4096)
+        .regex(/^[^\s\p{Cc}]+$/u),
+    )
+    .refine((k) => Object.keys(k).length <= AGENT_KEYS_MAX, "too many keys"),
+});
+export type AgentKeysRequest = z.infer<typeof agentKeysRequestSchema>;
+
 /** POST /v1/tenants */
 export const createTenantRequestSchema = z.object({
   ws: wsSlugSchema,
@@ -75,8 +99,8 @@ export type GithubConnectRequest = z.infer<typeof githubConnectRequestSchema>;
 export const buildImageRequestSchema = z.object({
   jobId: jobIdSchema,
   t3Ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/),
-  /** Skip the baked runtimes and agent CLIs (build arg SLIM=1). */
-  slim: z.boolean().optional(),
+  /** Build number; the image is tagged with its 3-digit form (`007`). Images are always slim. */
+  version: z.number().int().min(1).max(999),
 });
 export type BuildImageRequest = z.infer<typeof buildImageRequestSchema>;
 

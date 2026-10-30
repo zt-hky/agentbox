@@ -45,9 +45,19 @@ box light.
   top bar (`.glass`); no glows in tables or lists. The one glow: the running hero status light and the
   AgentBox object on the auth pages.
 - Login and request-access are always Night (`dark` wrapper + `.night-backdrop`) regardless of the theme
-  choice, with the static AgentBox object (`AuthShell`).
-- No continuous animation. A `StatusLight` pulses once when its status changes (CSS, keyed remount).
-  `prefers-reduced-motion` disables all animation/transition globally.
+  choice, with the static AgentBox object (`AuthShell`). The onboarding wizard is not Night: it uses
+  the app's `bg-background`/`bg-card` surfaces, hairline borders and Iris, in the user's theme.
+- No continuous animation, with one exception (below). A `StatusLight` pulses once when its status
+  changes (CSS, keyed remount). `prefers-reduced-motion` disables all animation/transition globally.
+- **Motion exception.** Rich animation is allowed only in (1) the onboarding wizard, above all the
+  workspace-creation screen, and (2) tool install, remove and upgrade progress on `/tools`. The
+  language is "blocks linking into a chain": `Chain` blocks reveal with a stagger, the link into the
+  active block flows, the active block pulses, `HashTicker` mono text ticks, `ChainBar` sweeps.
+  Rules: it runs only while the operation is in progress (no item `active` means nothing moves);
+  it uses the app tokens (Iris `primary`/`signal` for active and done blocks, links and the sweep;
+  `status-error` for failure; mono for hashes);
+  the global reduced-motion rule applies and `HashTicker` also checks it. Styles live under
+  `chain-*` in `globals.css`. Nowhere else: dashboard, tables, admin stay static.
 
 ## Layout
 
@@ -75,6 +85,7 @@ live in `components/nav-config.ts` (`ADMIN_NAV_GROUPS`: People, Workspaces, Plat
 - `Stat({ label, value, hint?, className? })` small metric; use sparingly.
 - `PlanCard({ plan, sub, balanceMicro, prices, label, creditValueVnd, now, showRates? })` the user's plan: trial and daily countdown (`lib/plan-status.ts`), included runtime left, credit rates, balance. `PlansComparison({ plans, currentPlanId, label, creditValueVnd })` public plans side by side with an "Ask an admin to upgrade" note (no payment integration). Money is always `formatCredits(micro, label, creditValueVnd)`: "139 credits (139.000 ₫)".
 - `EmptyState({ title, description?, action? })` dashed panel; always say what to do next.
+- `Chain({ items: { key, label, detail?, state: "pending"|"active"|"done"|"failed" }[], orientation? })`, `ChainBar({ value 0..1, active, label })`, `HashTicker({ active, settled?, length? })` **client**: the motion-exception components; use only where the exception allows.
 - `Mono({ children, className? })` inline JetBrains Mono.
 - `KeyValueList({ items: { label, value: ReactNode, mono? }[] })` technical properties.
 - `CodeBlock({ text, wrap?, maxHeight?, label? })` scrollable mono block with copy button (`CopyButton` is the client part).
@@ -102,6 +113,6 @@ Live data helpers: `lib/live-stats.ts` (`readingFromHostStats`, `cpuCoresFromSam
 ## Don't
 
 - No ALL-CAPS eyebrow labels, no middle-dot joined meta strings, no "→" on buttons/links.
-- No gradient washes, no fade-in on sections, no looping animation, no shadows beyond the hero module.
+- No gradient washes, no fade-in on sections, no looping animation outside the motion exception, no shadows beyond the hero module.
 - No per-use `className` overrides on `components/ui/*` to change look; no new colours outside the tokens.
 - No raw hex in pages; use tokens. No `Progress` for levels; use `Meter`.

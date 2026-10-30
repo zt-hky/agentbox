@@ -13,6 +13,16 @@ Multi-tenant coding-agent SaaS on rootless Podman.
 - `infra/` — host provisioning, control-plane deployment
 - `docs/security/` — sandbox docs and host validation
 - `docs/toolchain.md` — per-workspace runtimes and agent CLIs, slim image rollout
+- `docs/images.md` — building workspace images: slim only, 3-digit build-number tags
+- `docs/onboarding.md` — mandatory onboarding, agent keys, workspace lifecycle (sleep, restart, delete)
+
+## Workspace images (read before building)
+
+Images are **slim only** and tagged with the **build number, zero-padded to 3 digits** (`001`,
+`002`, ...): `localhost/agentbox-workspace:<NNN>`. Never use a free-form tag and never bake Node,
+agent CLIs or language runtimes into the image: users install those through the toolchain. Build from
+the admin console (`/admin/images`), which allocates the number (`images.version`) and shows it as
+`NNN`; details in [`docs/images.md`](docs/images.md).
 
 ## Tests
 

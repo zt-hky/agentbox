@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CATALOG,
+  BUNDLED_PACKAGE_MANAGERS,
   agentStepSchema,
   abiIsOlder,
   buildPlan,
@@ -10,6 +11,12 @@ import {
   imageManifestSchema,
   isManaged,
   manifestFromVersions,
+  packageManagersFor,
+  parseMavenMetadata,
+  parsePypi,
+  parseAdoptium,
+  parseGithubReleases,
+  parseGoDl,
   parseMuseManifest,
   parseNodeIndex,
   parseNpmPackument,
@@ -430,6 +437,203 @@ describe("toAgentStep", () => {
     expect(
       toolchainApplyRequestSchema.safeParse({ runId: "../x", mode: "apply", steps: [] }).success,
     ).toBe(false);
+  });
+});
+
+describe("language runtimes: rust, go, java", () => {
+  it("are runtimes with mise backends and a version source", () => {
+    for (const id of ["rust", "go", "java"] as const) {
+      const e = requireEntry(id);
+      expect(e.kind).toBe("runtime");
+      expect(e.backends[0]!.spec).toBe(id);
+      expect(e.bins.some((b) => !b.optional)).toBe(true);
+    }
+    expect(requireEntry("go").versionArgs).toEqual(["version"]);
+    expect(requireEntry("java").channels).toEqual(["lts", "latest", "pin"]);
+    expect(CATALOG.map((e) => e.id)).toEqual(expect.arrayContaining(["node", "bun", "python"]));
+  });
+
+  it("go: stable releases from go.dev, patchless entries dropped", () => {
+    const r = parseGoDl([
+      { version: "go1.24.1", stable: true },
+      { version: "go1.24.0", stable: true },
+      { version: "go1.25rc1", stable: false },
+      { version: "go1.23", stable: true },
+    ]);
+    expect(r).toEqual({ latest: "1.24.1", lts: null, versions: ["1.24.1", "1.24.0"] });
+    expect(resolveTarget(requireEntry("go"), "pin", "1.24", r)).toEqual({
+      ok: true,
+      version: "1.24.1",
+    });
+  });
+
+  it("rust: release tags, prereleases skipped", () => {
+    const r = parseGithubReleases([
+      { tag_name: "1.91.0" },
+      { tag_name: "1.90.0" },
+      { tag_name: "1.92.0-beta.1", prerelease: true },
+      { tag_name: "v1.89.0" },
+    ]);
+    expect(r.latest).toBe("1.91.0");
+    expect(r.versions).toEqual(["1.91.0", "1.90.0", "1.89.0"]);
+  });
+
+  it("java: latest is the newest GA, lts the newest LTS; pre-17 majors are ignored", () => {
+    const r = parseAdoptium({
+      versions: [
+        { major: 26, minor: 0, security: 1, openjdk_version: "26.0.1+9" },
+        { major: 25, minor: 0, security: 2, openjdk_version: "25.0.2+10-LTS" },
+        { major: 21, minor: 0, security: 9, semver: "21.0.9+10.0.LTS" },
+        { major: 11, minor: 0, security: 29, openjdk_version: "11.0.29+7-LTS" },
+      ],
+    });
+    expect(r).toEqual({
+      latest: "26.0.1",
+      lts: "25.0.2",
+      versions: ["26.0.1", "25.0.2", "21.0.9"],
+    });
+    expect(resolveTarget(requireEntry("java"), "lts", null, r)).toEqual({
+      ok: true,
+      version: "25.0.2",
+    });
+  });
+
+  it("fetchLatestInfo reads each source from its URL", async () => {
+    const seen: string[] = [];
+    const f: FetchLike = async (url) => {
+      seen.push(url);
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          url.includes("go.dev")
+            ? [{ version: "go1.24.1", stable: true }]
+            : url.includes("adoptium")
+              ? { versions: [] }
+              : [{ tag_name: "1.91.0" }],
+        text: async () => "",
+      };
+    };
+    expect((await fetchLatestInfo(requireEntry("go"), f)).latest).toBe("1.24.1");
+    expect((await fetchLatestInfo(requireEntry("rust"), f)).latest).toBe("1.91.0");
+    expect((await fetchLatestInfo(requireEntry("java"), f)).latest).toBeNull();
+    expect(seen[0]).toContain("go.dev/dl");
+    expect(seen[1]).toBe("https://api.github.com/repos/rust-lang/rust/releases?per_page=100");
+    expect(seen[2]).toContain("api.adoptium.net");
+  });
+});
+
+describe("package managers", () => {
+  const ids = ["pnpm", "yarn", "uv", "poetry", "maven", "gradle"] as const;
+
+  it("are package-manager entries that name their language and use explicit mise backends", () => {
+    const language = {
+      pnpm: "node",
+      yarn: "node",
+      uv: "python",
+      poetry: "python",
+      maven: "java",
+      gradle: "java",
+    };
+    for (const id of ids) {
+      const e = requireEntry(id);
+      expect(e.kind, id).toBe("package-manager");
+      expect(e.requires, id).toBe(language[id]);
+      expect(requireEntry(e.requires!).kind).toBe("runtime");
+      expect(e.backends.length, id).toBeGreaterThan(0);
+      for (const b of e.backends) expect(b.spec, id).toMatch(/^(aqua|npm|pypi):/);
+      expect(
+        e.bins.some((b) => !b.optional),
+        id,
+      ).toBe(true);
+      expect(e.channels, id).toEqual(["latest", "pin"]);
+    }
+    expect(packageManagersFor("node").map((e) => e.id)).toEqual(["pnpm", "yarn"]);
+    expect(packageManagersFor("python").map((e) => e.id)).toEqual(["uv", "poetry"]);
+    expect(packageManagersFor("java").map((e) => e.id)).toEqual(["maven", "gradle"]);
+    expect(packageManagersFor("rust")).toEqual([]);
+    expect(Object.keys(BUNDLED_PACKAGE_MANAGERS).sort()).toEqual([
+      "bun",
+      "go",
+      "node",
+      "python",
+      "rust",
+    ]);
+  });
+
+  it("pypi and maven sources: stable releases only, yanked files dropped", () => {
+    const py = parsePypi({
+      releases: {
+        "2.2.1": [{ yanked: false }],
+        "2.2.0": [{ yanked: true }],
+        "2.3.0rc1": [{}],
+        "2.1.4": [{}],
+        "1.0.0": [],
+      },
+    });
+    expect(py).toEqual({ latest: "2.2.1", lts: null, versions: ["2.2.1", "2.1.4"] });
+    const mvn = parseMavenMetadata(
+      "<metadata><versioning><versions><version>3.9.10</version><version>3.9.11</version>" +
+        "<version>4.0.0-rc-4</version><version>3.8.8</version></versions></versioning></metadata>",
+    );
+    expect(mvn).toEqual({ latest: "3.9.11", lts: null, versions: ["3.9.11", "3.9.10", "3.8.8"] });
+  });
+
+  it("fetchLatestInfo reads pypi and maven central", async () => {
+    const seen: string[] = [];
+    const f: FetchLike = async (url) => {
+      seen.push(url);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ releases: { "2.2.1": [{}] } }),
+        text: async () => "<versions><version>3.9.11</version></versions>",
+      };
+    };
+    expect((await fetchLatestInfo(requireEntry("poetry"), f)).latest).toBe("2.2.1");
+    expect((await fetchLatestInfo(requireEntry("maven"), f)).latest).toBe("3.9.11");
+    expect(seen).toEqual([
+      "https://pypi.org/pypi/poetry/json",
+      "https://repo1.maven.org/maven2/org/apache/maven/apache-maven/maven-metadata.xml",
+    ]);
+  });
+
+  it("install after their language, and are skipped when the language is not wanted", () => {
+    const latest = {
+      ...info,
+      pnpm: { latest: "10.18.0", lts: null, versions: ["10.18.0", "10.17.1"] },
+      uv: { latest: "0.9.5", lts: null, versions: ["0.9.5"] },
+    } as Partial<Record<ToolId, LatestInfo>>;
+    const plan = buildPlan({
+      desired: [want("claude"), want("pnpm"), want("node", "lts"), want("uv"), want("python")],
+      observed: [],
+      latest,
+    });
+    expect(plan.steps.map((s) => s.tool)).toEqual(["node", "python", "pnpm", "uv", "claude"]);
+    expect(plan.steps.find((s) => s.tool === "pnpm")?.to).toBe("10.18.0");
+    const orphan = buildPlan({
+      desired: [want("pnpm"), want("node", "lts", null, false)],
+      observed: [],
+      latest,
+    });
+    expect(orphan.steps).toEqual([]);
+    expect(orphan.skipped).toEqual([{ tool: "pnpm", reason: "requires Node.js" }]);
+  });
+
+  it("a pinned line resolves to the newest patch of that line", () => {
+    const r = parseGithubReleases([
+      { tag_name: "0.9.5" },
+      { tag_name: "0.9.4" },
+      { tag_name: "0.8.22" },
+    ]);
+    expect(resolveTarget(requireEntry("uv"), "pin", "0.8", r)).toEqual({
+      ok: true,
+      version: "0.8.22",
+    });
+    expect(selectableLines(requireEntry("uv"), r.versions).map((l) => l.line)).toEqual([
+      "0.9",
+      "0.8",
+    ]);
   });
 });
 

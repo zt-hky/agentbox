@@ -14,6 +14,15 @@ export const TOOL_IDS = [
   "node",
   "bun",
   "python",
+  "rust",
+  "go",
+  "java",
+  "pnpm",
+  "yarn",
+  "uv",
+  "poetry",
+  "maven",
+  "gradle",
   "claude",
   "codex",
   "omp",
@@ -29,13 +38,19 @@ export const toolIdSchema = z.enum(TOOL_IDS);
 export const CHANNELS = ["latest", "lts", "pin"] as const;
 export type Channel = (typeof CHANNELS)[number];
 
-export type ToolKind = "runtime" | "agent";
+/** `package-manager` entries install on top of a language runtime (`requires`). */
+export type ToolKind = "runtime" | "package-manager" | "agent";
 
 /** Where the central worker learns the available versions of a tool. */
 export type VersionSource =
   | { kind: "node-dist" }
   | { kind: "python-mise" }
   | { kind: "npm"; pkg: string }
+  | { kind: "pypi"; pkg: string }
+  | { kind: "maven-central"; group: string; artifact: string }
+  | { kind: "go-dl" }
+  | { kind: "adoptium" }
+  | { kind: "github-releases"; repo: string }
   | { kind: "muse-channel" };
 
 export interface BinDef {
@@ -68,6 +83,8 @@ export interface CatalogEntry {
   lines: boolean;
   /** The T3 provider driver that probes this binary by name (null: not a T3 provider). */
   t3Driver: string | null;
+  /** Package managers only: the language runtime this manager belongs to. */
+  requires?: ToolId;
   /** Rough installed size, shown before the user confirms. Measured values replace it after install. */
   sizeHintMb: number;
 }
@@ -126,6 +143,143 @@ export const CATALOG: readonly CatalogEntry[] = [
     lines: true,
     t3Driver: null,
     sizeHintMb: 105,
+  },
+  {
+    id: "rust",
+    kind: "runtime",
+    label: "Rust",
+    description: "Rust compiler and Cargo, installed with rustup through mise.",
+    bins: [
+      { name: "rustc" },
+      { name: "cargo" },
+      { name: "rustfmt", optional: true },
+      { name: "rustdoc", optional: true },
+    ],
+    versionArgs: ver,
+    backends: [{ spec: "rust" }],
+    versionSource: { kind: "github-releases", repo: "rust-lang/rust" },
+    channels: ["latest", "pin"],
+    lines: true,
+    t3Driver: null,
+    sizeHintMb: 1100,
+  },
+  {
+    id: "go",
+    kind: "runtime",
+    label: "Go",
+    description: "Go toolchain.",
+    bins: [{ name: "go" }],
+    versionArgs: ["version"],
+    backends: [{ spec: "go" }],
+    versionSource: { kind: "go-dl" },
+    channels: ["latest", "pin"],
+    lines: true,
+    t3Driver: null,
+    sizeHintMb: 260,
+  },
+  {
+    id: "java",
+    kind: "runtime",
+    label: "Java",
+    description: "OpenJDK (LTS by default) with javac.",
+    bins: [{ name: "java" }, { name: "javac" }],
+    versionArgs: ver,
+    backends: [{ spec: "java" }],
+    versionSource: { kind: "adoptium" },
+    channels: ["lts", "latest", "pin"],
+    lines: true,
+    t3Driver: null,
+    sizeHintMb: 330,
+  },
+  {
+    id: "pnpm",
+    kind: "package-manager",
+    requires: "node",
+    label: "pnpm",
+    description: "Fast, disk-efficient Node.js package manager.",
+    bins: [{ name: "pnpm" }, { name: "pnpx", optional: true }],
+    versionArgs: ver,
+    backends: [{ spec: "aqua:pnpm/pnpm" }, { spec: "npm:pnpm" }],
+    versionSource: { kind: "npm", pkg: "pnpm" },
+    channels: ["latest", "pin"],
+    lines: true,
+    t3Driver: null,
+    sizeHintMb: 70,
+  },
+  {
+    id: "yarn",
+    kind: "package-manager",
+    requires: "node",
+    label: "Yarn",
+    description: "Yarn package manager for Node.js (4.x, Berry).",
+    bins: [{ name: "yarn" }, { name: "yarnpkg", optional: true }],
+    versionArgs: ver,
+    backends: [{ spec: "aqua:yarnpkg/berry" }, { spec: "npm:@yarnpkg/cli-dist" }],
+    versionSource: { kind: "npm", pkg: "@yarnpkg/cli-dist" },
+    channels: ["latest", "pin"],
+    lines: true,
+    t3Driver: null,
+    sizeHintMb: 15,
+  },
+  {
+    id: "uv",
+    kind: "package-manager",
+    requires: "python",
+    label: "uv",
+    description: "Fast Python package and project manager.",
+    bins: [{ name: "uv" }, { name: "uvx", optional: true }],
+    versionArgs: ver,
+    backends: [{ spec: "aqua:astral-sh/uv" }],
+    versionSource: { kind: "github-releases", repo: "astral-sh/uv" },
+    channels: ["latest", "pin"],
+    lines: true,
+    t3Driver: null,
+    sizeHintMb: 60,
+  },
+  {
+    id: "poetry",
+    kind: "package-manager",
+    requires: "python",
+    label: "Poetry",
+    description: "Python dependency management and packaging.",
+    bins: [{ name: "poetry" }],
+    versionArgs: ver,
+    backends: [{ spec: "pypi:poetry" }],
+    versionSource: { kind: "pypi", pkg: "poetry" },
+    channels: ["latest", "pin"],
+    lines: true,
+    t3Driver: null,
+    sizeHintMb: 90,
+  },
+  {
+    id: "maven",
+    kind: "package-manager",
+    requires: "java",
+    label: "Maven",
+    description: "Apache Maven build tool for Java.",
+    bins: [{ name: "mvn" }],
+    versionArgs: ver,
+    backends: [{ spec: "aqua:apache/maven" }],
+    versionSource: { kind: "maven-central", group: "org.apache.maven", artifact: "apache-maven" },
+    channels: ["latest", "pin"],
+    lines: true,
+    t3Driver: null,
+    sizeHintMb: 15,
+  },
+  {
+    id: "gradle",
+    kind: "package-manager",
+    requires: "java",
+    label: "Gradle",
+    description: "Gradle build tool for Java and Kotlin.",
+    bins: [{ name: "gradle" }],
+    versionArgs: ver,
+    backends: [{ spec: "aqua:gradle/gradle-distributions" }],
+    versionSource: { kind: "github-releases", repo: "gradle/gradle" },
+    channels: ["latest", "pin"],
+    lines: true,
+    t3Driver: null,
+    sizeHintMb: 140,
   },
   {
     id: "claude",
@@ -252,6 +406,25 @@ export function requireEntry(id: string): CatalogEntry {
   if (!e) throw new Error(`unknown tool ${id}`);
   return e;
 }
+
+/** Installable package managers that belong to a language runtime, in catalog order. */
+export function packageManagersFor(language: string): CatalogEntry[] {
+  return CATALOG.filter((e) => e.kind === "package-manager" && e.requires === language);
+}
+
+/**
+ * Package managers that ship inside a language runtime. They are shown as included during onboarding
+ * and are never separate catalog tools: no install, no version choice.
+ */
+export const BUNDLED_PACKAGE_MANAGERS: Readonly<
+  Partial<Record<ToolId, readonly { name: string; detail: string }[]>>
+> = {
+  node: [{ name: "npm", detail: "Bundled with Node.js" }],
+  bun: [{ name: "Bun", detail: "Built in: Bun is its own package manager" }],
+  python: [{ name: "pip", detail: "Bundled with Python" }],
+  rust: [{ name: "Cargo", detail: "Bundled with Rust (rustup)" }],
+  go: [{ name: "Go modules", detail: "Built into the Go toolchain" }],
+};
 
 /** Image-baked tools the managed copies replace; used to detect `external` installs. */
 export const BAKED_TOOL_IDS: readonly ToolId[] = ["node", "claude", "codex", "omp"];

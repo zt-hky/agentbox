@@ -1,5 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
-import { encrypt, randomToken } from "@agentbox/core/tokens";
+import { and, eq } from "drizzle-orm";
 import {
   accessRequests,
   creditBalances,
@@ -11,7 +10,6 @@ import {
 import { writeAudit } from "./audit";
 import type { Db } from "./db-types";
 import { UserError } from "./errors";
-import { enqueueWorkspaceJob } from "./jobs";
 import { checkSlugAvailable } from "./slug-taken";
 import { addDays, addMonths } from "./time";
 
@@ -20,15 +18,13 @@ export interface GrantInput {
   adminId: string;
   slug: string;
   planId: string;
-  encryptionKey: string;
   ip: string | null;
   now?: Date;
 }
 
 export interface GrantResult {
-  workspaceId: string;
-  slot: number;
   userId: string;
+  slug: string;
 }
 
 /** A plan with `trialDays` starts a trial at `now`; any other plan has none. */
@@ -43,10 +39,11 @@ export function isUniqueViolation(e: unknown): boolean {
 }
 
 /**
- * Grant access to a user who has no workspace yet, in one transaction (plan step 9): whatever their
- * access status (pending, rejected, suspended before approval, never requested, or already active
- * like a bootstrap admin). A pending request is closed as approved; otherwise an approved request
- * row is recorded for history.
+ * Grant access to a user who has no workspace yet, in one transaction: whatever their access status
+ * (pending, rejected, suspended before approval, never requested, or already active like a
+ * bootstrap admin). A pending request is closed as approved; otherwise an approved request row is
+ * recorded for history. Approval activates access, the plan and the reserved slug only: the
+ * workspace itself is created when the user finishes onboarding (`createWorkspaceForUser`).
  */
 export async function grantAccess(database: Db, input: GrantInput): Promise<GrantResult> {
   const now = input.now ?? new Date();
@@ -72,12 +69,6 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
       const plan = (await tx.select().from(plans).where(eq(plans.id, input.planId)).limit(1))[0];
       if (!plan || !plan.active) throw new UserError("Plan not found or inactive");
 
-      const slotRes = await tx.execute<{ slot: number }>(
-        sql`select nextval('tenant_slot_seq')::int as slot`,
-      );
-      const slot = slotRes.rows[0]?.slot;
-      if (typeof slot !== "number") throw new UserError("No tenant slot available");
-
       const decided = { status: "approved" as const, decidedBy: input.adminId, decidedAt: now };
       const closed = await tx
         .update(accessRequests)
@@ -87,7 +78,10 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
       if (closed.length === 0 && target.accessStatus !== "active") {
         await tx.insert(accessRequests).values({ userId: target.id, message: null, ...decided });
       }
-      await tx.update(user).set({ accessStatus: "active" }).where(eq(user.id, target.id));
+      await tx
+        .update(user)
+        .set({ accessStatus: "active", reservedSlug: input.slug })
+        .where(eq(user.id, target.id));
 
       const cycleEnd = addMonths(now, 1);
       const trialEndsAt = trialEnd(plan, now);
@@ -113,19 +107,6 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
         .values({ userId: target.id, balanceMicro: 0n })
         .onConflictDoNothing();
 
-      const inserted = await tx
-        .insert(workspaces)
-        .values({
-          userId: target.id,
-          slug: input.slug,
-          slot,
-          status: "provisioning",
-          identitySecretEnc: encrypt(randomToken(), input.encryptionKey),
-        })
-        .returning({ id: workspaces.id });
-      const workspaceId = inserted[0]!.id;
-
-      await enqueueWorkspaceJob(tx, workspaceId, { type: "provision_tenant" });
       await writeAudit(tx, {
         actorId: input.adminId,
         action: "access.approve",
@@ -135,13 +116,12 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
           requestId: closed[0]?.id ?? null,
           previous: target.accessStatus,
           slug: input.slug,
-          slot,
           planId: plan.id,
           trialEndsAt: trialEndsAt?.toISOString() ?? null,
         },
         ip: input.ip,
       });
-      return { workspaceId, slot, userId: target.id };
+      return { userId: target.id, slug: input.slug };
     });
   } catch (e) {
     if (isUniqueViolation(e)) throw new UserError("Slug or workspace already exists");
@@ -150,14 +130,13 @@ export async function grantAccess(database: Db, input: GrantInput): Promise<Gran
 }
 
 /**
- * Re-create the workspace of a user whose previous one is fully `deleted` (never while
- * `deleting`: the host account may still exist). The `deleted` row is reused in place, because
- * `workspaces.userId`/`slug` are unique and usage, events, jobs and ledger rows reference its id:
- * it gets a fresh slot, identity secret, the chosen slug and `provisioning`, plus a
- * `provision_tenant` job. The user becomes `active` again. An existing subscription is kept so a
- * trial is never granted twice and its cycle and usage carry on; choosing another plan only
- * swaps `planId` (no fee is charged; use a plan change for that). Without a subscription the
- * user gets one exactly like `grantAccess`.
+ * Re-approve a user whose previous workspace is fully `deleted` (never while `deleting`: the host
+ * account may still exist). They become `active` again, with the chosen plan and slug reserved, and
+ * must go through onboarding again (`onboardedAt` cleared): the workspace is created there, reusing
+ * the `deleted` row in place (`createWorkspaceForUser`). A workspace deleted with its data kept can
+ * only come back under the same slug, because the kept home directory is named after it. An
+ * existing subscription is kept so a trial is never granted twice; choosing another plan only swaps
+ * `planId`. Without a subscription the user gets one exactly like `grantAccess`.
  */
 export async function recreateWorkspace(database: Db, input: GrantInput): Promise<GrantResult> {
   const now = input.now ?? new Date();
@@ -178,6 +157,11 @@ export async function recreateWorkspace(database: Db, input: GrantInput): Promis
       if (old.status !== "deleted") {
         throw new UserError("Delete the current workspace before re-creating it");
       }
+      if (old.dataKept && input.slug !== old.slug) {
+        throw new UserError(
+          `The kept data belongs to "${old.slug}"; re-create under that slug or wipe the data first`,
+        );
+      }
 
       const slugCheck = await checkSlugAvailable(tx, input.slug, target.id);
       if (!slugCheck.ok) throw new UserError(slugCheck.error);
@@ -185,18 +169,15 @@ export async function recreateWorkspace(database: Db, input: GrantInput): Promis
       const plan = (await tx.select().from(plans).where(eq(plans.id, input.planId)).limit(1))[0];
       if (!plan || !plan.active) throw new UserError("Plan not found or inactive");
 
-      const slotRes = await tx.execute<{ slot: number }>(
-        sql`select nextval('tenant_slot_seq')::int as slot`,
-      );
-      const slot = slotRes.rows[0]?.slot;
-      if (typeof slot !== "number") throw new UserError("No tenant slot available");
-
       const decided = { status: "approved" as const, decidedBy: input.adminId, decidedAt: now };
       await tx
         .update(accessRequests)
         .set(decided)
         .where(and(eq(accessRequests.userId, target.id), eq(accessRequests.status, "pending")));
-      await tx.update(user).set({ accessStatus: "active" }).where(eq(user.id, target.id));
+      await tx
+        .update(user)
+        .set({ accessStatus: "active", reservedSlug: input.slug, onboardedAt: null })
+        .where(eq(user.id, target.id));
 
       const sub = (
         await tx
@@ -221,25 +202,6 @@ export async function recreateWorkspace(database: Db, input: GrantInput): Promis
         .values({ userId: target.id, balanceMicro: 0n })
         .onConflictDoNothing();
 
-      await tx
-        .update(workspaces)
-        .set({
-          slug: input.slug,
-          slot,
-          status: "provisioning",
-          imageId: null,
-          identitySecretEnc: encrypt(randomToken(), input.encryptionKey),
-          lastRequestAt: null,
-          lastActivityAt: null,
-          awakeSince: null,
-          lastCpuUsec: 0n,
-          startFailures: 0,
-          githubSyncPending: false,
-          createdAt: now,
-        })
-        .where(eq(workspaces.id, old.id));
-
-      await enqueueWorkspaceJob(tx, old.id, { type: "provision_tenant" });
       await writeAudit(tx, {
         actorId: input.adminId,
         action: "workspace.recreate",
@@ -249,13 +211,13 @@ export async function recreateWorkspace(database: Db, input: GrantInput): Promis
           userId: target.id,
           previousSlug: old.slug,
           slug: input.slug,
-          slot,
+          dataKept: old.dataKept,
           planId: plan.id,
           previous: target.accessStatus,
         },
         ip: input.ip,
       });
-      return { workspaceId: old.id, slot, userId: target.id };
+      return { userId: target.id, slug: input.slug };
     });
   } catch (e) {
     if (isUniqueViolation(e)) throw new UserError("Slug or workspace already exists");

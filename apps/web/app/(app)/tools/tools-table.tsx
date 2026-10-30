@@ -1,5 +1,7 @@
 "use client";
 
+import { ChainBar } from "@/components/chain";
+import { HashTicker } from "@/components/hash-ticker";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DataTable, columnHelper, type Columns } from "@/components/data-table";
 import { Mono } from "@/components/mono";
@@ -14,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatBytes } from "@/lib/format";
+import { channelOptions, channelValue, parseChannelValue } from "@/lib/toolchain/version-options";
 import type { ToolRowView } from "@/lib/toolchain/view";
 import {
   installToolAction,
@@ -25,47 +28,15 @@ import {
 } from "./actions";
 import { useToolAction } from "./use-tool-action";
 
-interface Option {
-  value: string;
-  label: string;
-}
-
-/** Channel and pin choices for one tool: `latest`, `lts`, or `pin:<line or version>`. */
-export function channelOptions(t: ToolRowView): Option[] {
-  const out: Option[] = [];
-  if (t.channels.includes("latest")) out.push({ value: "latest", label: "Latest" });
-  if (t.channels.includes("lts")) out.push({ value: "lts", label: "LTS" });
-  if (t.channels.includes("pin")) {
-    for (const l of t.lines) out.push({ value: `pin:${l.line}`, label: `${l.line} (${l.latest})` });
-    for (const v of t.pins) out.push({ value: `pin:${v}`, label: `Pinned ${v}` });
-  }
-  const current = currentChannelValue(t);
-  if (!out.some((o) => o.value === current)) {
-    out.push({ value: current, label: current.startsWith("pin:") ? current.slice(4) : current });
-  }
-  return out;
-}
-
-export const currentChannelValue = (t: ToolRowView) =>
-  t.channel === "pin" ? `pin:${t.pinnedVersion ?? ""}` : t.channel;
-
-export function parseChannelValue(value: string): {
-  channel: "latest" | "lts" | "pin";
-  pinnedVersion: string | null;
-} {
-  if (value.startsWith("pin:")) return { channel: "pin", pinnedVersion: value.slice(4) };
-  return { channel: value === "lts" ? "lts" : "latest", pinnedVersion: null };
-}
-
 function ChannelCell({ tool }: { tool: ToolRowView }) {
   const { pending, run } = useToolAction();
-  const options = channelOptions(tool);
+  const options = channelOptions(tool, tool);
   if (options.length <= 1) {
     return <span className="text-sm">{options[0]?.label ?? "Latest"}</span>;
   }
   return (
     <Select
-      value={currentChannelValue(tool)}
+      value={channelValue(tool.channel, tool.pinnedVersion)}
       disabled={pending}
       onValueChange={(value) =>
         run(
@@ -99,6 +70,16 @@ function ActionsCell({ tool, asleep }: { tool: ToolRowView; asleep: boolean }) {
     : "";
   return (
     <div className="flex flex-wrap justify-end gap-2">
+      {tool.installBlockedReason ? (
+        <>
+          <span className="self-center text-meta text-muted-foreground">
+            {tool.installBlockedReason}
+          </span>
+          <Button size="sm" disabled title={tool.installBlockedReason}>
+            Install
+          </Button>
+        </>
+      ) : null}
       {tool.canInstall ? (
         <ConfirmDialog
           trigger={
@@ -231,6 +212,14 @@ function makeColumns(asleep: boolean): Columns<ToolRowView> {
         return (
           <div className="space-y-1">
             {t.state === "idle" && !t.installedVersion ? null : <StatusBadge status={t.state} />}
+            {t.state === "installing" || t.state === "removing" ? (
+              <div className="flex w-32 items-center gap-2">
+                <div className="flex-1">
+                  <ChainBar value={0.3} active label={`${t.label} ${t.state}`} />
+                </div>
+                <HashTicker active length={6} className="text-muted-foreground" />
+              </div>
+            ) : null}
             {t.state === "failed" && t.lastError ? (
               <p className="max-w-xs whitespace-normal text-meta text-destructive">{t.lastError}</p>
             ) : null}

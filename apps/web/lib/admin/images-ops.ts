@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import {
   CONTAINER_UP_STATUSES,
+  MAX_IMAGE_VERSION,
   WORKSPACE_GONE_STATUSES,
   isImageUsable,
 } from "@agentbox/core/images";
@@ -22,6 +23,38 @@ type WorkspaceRow = typeof workspaces.$inferSelect;
 export interface ImageActor {
   adminId: string;
   ip: string | null;
+}
+
+/**
+ * Insert a `building` image row with the next build number (max + 1, never reused). The unique
+ * index on `images.version` turns two racing inserts into a retryable error.
+ */
+export async function allocateImage(
+  database: DbLike,
+  input: { t3Ref: string; createdBy: string | null },
+): Promise<{ id: string; version: number }> {
+  try {
+    const [row] = await database
+      .insert(images)
+      .values({
+        t3Ref: input.t3Ref,
+        status: "building",
+        createdBy: input.createdBy,
+        version: sql`(select coalesce(max(${images.version}), 0) + 1 from ${images})`,
+      })
+      .returning({ id: images.id, version: images.version });
+    if (!row) throw new Error("could not allocate an image row");
+    if (row.version > MAX_IMAGE_VERSION) {
+      throw new UserError(`Build numbers are 3 digits; ${MAX_IMAGE_VERSION} images already exist`);
+    }
+    return row;
+  } catch (e) {
+    const code = (e as { code?: string; cause?: { code?: string } }).code;
+    if (code === "23505" || (e as { cause?: { code?: string } }).cause?.code === "23505") {
+      throw new UserError("Another build was just queued; try again");
+    }
+    throw e;
+  }
 }
 
 export type MoveMode = "none" | "running" | "all";

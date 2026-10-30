@@ -147,23 +147,17 @@ describe("transport and helpers", () => {
     expect(a.slice(0, 3)[1]).toBe("-c");
   });
 
-  it("passes SLIM to podman build", () => {
-    const full = buildArgv("main", "repo:1", "/ctx");
-    const slim = buildArgv("main", "repo:1", "/ctx", true);
-    expect(full).toEqual([
+  it("builds slim only: no SLIM build arg", () => {
+    expect(buildArgv("main", "repo:001", "/ctx")).toEqual([
       "podman",
       "build",
       "--pull=always",
       "--no-cache",
       "--build-arg",
       "T3_REF=main",
-      "--build-arg",
-      "SLIM=0",
       "-t",
-      "repo:1",
+      "repo:001",
       "/ctx",
     ]);
-    expect(slim).toContain("SLIM=1");
-    expect(slim).not.toContain("SLIM=0");
   });
 });

@@ -11,6 +11,7 @@ import {
   workspaceTopResponseSchema,
   statsResponseSchema,
   type BuildImageRequest,
+  type AgentKeysRequest,
   type BuildImageResponse,
   type CreateTenantRequest,
   type GithubConnectRequest,
@@ -48,7 +49,8 @@ export class AgentError extends Error {
 export interface AgentClient {
   createTenant(req: CreateTenantRequest): Promise<void>;
   updateLimits(ws: string, req: UpdateLimitsRequest): Promise<void>;
-  deleteTenant(ws: string): Promise<void>;
+  deleteTenant(ws: string, opts?: { keepData?: boolean }): Promise<void>;
+  syncAgentKeys(ws: string, req: AgentKeysRequest): Promise<void>;
   startWorkspace(ws: string, req: StartWorkspaceRequest): Promise<StartWorkspaceResponse>;
   stopWorkspace(ws: string): Promise<void>;
   githubConnect(ws: string, req: GithubConnectRequest): Promise<void>;
@@ -169,8 +171,12 @@ export function createAgentClient(opts: AgentClientOptions): AgentClient {
     async updateLimits(ws, req) {
       await call("PUT", `/v1/tenants/${seg(ws)}/limits`, req, okResponseSchema);
     },
-    async deleteTenant(ws) {
-      await call("DELETE", `/v1/tenants/${seg(ws)}`, undefined, okResponseSchema);
+    async deleteTenant(ws, opts) {
+      const q = opts?.keepData ? "?keepData=1" : "";
+      await call("DELETE", `/v1/tenants/${seg(ws)}${q}`, undefined, okResponseSchema);
+    },
+    async syncAgentKeys(ws, req) {
+      await call("PUT", `/v1/workspaces/${seg(ws)}/agent-keys`, req, okResponseSchema);
     },
     startWorkspace(ws, req) {
       return call("POST", `/v1/workspaces/${seg(ws)}/start`, req, startWorkspaceResponseSchema);

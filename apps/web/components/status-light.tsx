@@ -29,6 +29,7 @@ const STATUS: Record<string, { tone: Tone; label: string }> = {
   rejected: { tone: "error", label: "Rejected" },
   suspended: { tone: "error", label: "Suspended" },
   // toolchain tools and runs
+  installed: { tone: "ok", label: "Installed" },
   installing: { tone: "busy", label: "Installing" },
   removing: { tone: "busy", label: "Removing" },
   waiting: { tone: "busy", label: "Waiting for start" },

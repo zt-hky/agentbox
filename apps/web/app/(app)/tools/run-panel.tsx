@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CodeBlock } from "@/components/code-block";
 import { DataTable, columnHelper, type Columns } from "@/components/data-table";
-import { Mono } from "@/components/mono";
 import { Section } from "@/components/section";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import type { RunView } from "@/lib/toolchain/view";
 import { pollRunAction, retryFailedAction } from "./actions";
+import { RunChain } from "./run-chain";
 import { useToolAction } from "./use-tool-action";
 
 const POLL_MS = 2000;
@@ -46,19 +46,6 @@ const historyColumns = [
       ),
   }),
 ] as Columns<RunView>;
-
-const STEP_LABEL: Record<string, string> = {
-  ok: "Done",
-  running: "Running",
-  failed: "Failed",
-  skipped: "Skipped",
-};
-
-function stepLine(s: RunView["steps"][number]): string {
-  const target = s.version ? ` ${s.version}` : "";
-  const err = s.status === "failed" && s.error ? `: ${s.error}` : "";
-  return `${s.tool} ${s.action}${target}${err}`;
-}
 
 export function RunPanel({
   initialRun,
@@ -134,21 +121,7 @@ export function RunPanel({
             </span>
           </div>
           {run.error ? <p className="text-sm text-destructive">{run.error}</p> : null}
-          {run.steps.length > 0 ? (
-            <ul className="space-y-1 text-sm">
-              {run.steps.map((s, i) => (
-                <li key={`${s.tool}-${s.action}-${i}`} className="flex items-center gap-2">
-                  <StatusBadge
-                    status={
-                      s.status === "ok" ? "done" : s.status === "running" ? "pending" : s.status
-                    }
-                    label={STEP_LABEL[s.status]}
-                  />
-                  <Mono>{stepLine(s)}</Mono>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <RunChain run={run} />
           {run.logTail ? (
             <CodeBlock text={run.logTail} label="Run log" maxHeight="17.5rem" />
           ) : null}

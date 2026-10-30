@@ -4,6 +4,9 @@ import { appOrigin, type GithubConnectConfig } from "./env";
 
 export const GH_STATE_COOKIE = "__Host-abx_gh_state";
 export const GH_STATE_MAX_AGE_S = 600;
+/** Where to return after the OAuth round trip; only the onboarding wizard sets it. */
+export const GH_NEXT_COOKIE = "__Host-abx_gh_next";
+export const ONBOARDING_RETURN = "/onboarding";
 export const WORKFLOW_PARAM = "workflow";
 
 export function callbackUrl(cfg: Pick<GithubConnectConfig, "callbackPath">): string {
@@ -26,6 +29,15 @@ export function authorizeUrl(
 
 export function stateCookie(value: string, maxAge = GH_STATE_MAX_AGE_S): string {
   return `${GH_STATE_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
+export function nextCookie(value: string, maxAge = GH_STATE_MAX_AGE_S): string {
+  return `${GH_NEXT_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
+/** The return page for a Connect round trip: onboarding when it started there, else Accounts. */
+export function returnBase(nextValue: string | null): string {
+  return nextValue === ONBOARDING_RETURN ? ONBOARDING_RETURN : "/settings/github";
 }
 
 export function readCookie(header: string | null, name: string): string | null {

@@ -50,6 +50,17 @@ export const user = pgTable("user", {
   banExpires: tstz("ban_expires"),
   // agentbox
   accessStatus: text("access_status", { enum: ACCESS_STATUSES }).notNull().default("none"),
+  // Set when the user finished onboarding (tools, agents, accounts, workspace); null = must onboard.
+  onboardedAt: tstz("onboarded_at"),
+  // Choices made during onboarding before a workspace exists: `tools` (runtimes and their package
+  // managers) and `agents` tool ids, plus the channel/pinned version chosen per tool.
+  onboardingSelection: jsonb("onboarding_selection").$type<{
+    tools?: string[];
+    agents?: string[];
+    versions?: Record<string, { channel: string; pinnedVersion?: string | null }>;
+  }>(),
+  // Slug chosen at approval; the workspace is created under it when onboarding finishes step 4.
+  reservedSlug: text("reserved_slug").unique(),
 });
 
 export const session = pgTable(
@@ -247,6 +258,8 @@ export const workspaces = pgTable("workspaces", {
     .default(sql`0`),
   startFailures: integer("start_failures").notNull().default(0),
   githubSyncPending: boolean("github_sync_pending").notNull().default(false),
+  // The tenant home was kept when the workspace was deleted; re-creating reuses it (same slug and slot).
+  dataKept: boolean("data_kept").notNull().default(false),
   // Toolchain (per-workspace runtimes and agent CLIs). A user change bumps `generation`; a run that
   // finishes stamps `appliedGeneration`. `pending` = apply once the workspace is running.
   toolchainGeneration: integer("toolchain_generation").notNull().default(0),
@@ -276,6 +289,8 @@ export const creditLedger = pgTable(
 
 export const images = pgTable("images", {
   id: id(),
+  // Build number (max + 1 at insert); the Podman tag is its 3-digit form (`007`).
+  version: integer("version").notNull().unique(),
   // Null while building: the Podman image ID and rootfs path exist only after the build.
   imageId: text("image_id").unique(),
   rootfsPath: text("rootfs_path"),
@@ -347,6 +362,19 @@ export const githubConnections = pgTable("github_connections", {
   scopes: text("scopes"),
   createdAt: createdAt(),
 });
+
+// Agent CLI credentials the user pasted (one per env var), encrypted like github_connections.
+export const agentKeys = pgTable(
+  "agent_keys",
+  {
+    userId: userRef(),
+    envVar: text("env_var").notNull(),
+    valueEnc: text("value_enc").notNull(),
+    createdAt: createdAt(),
+    updatedAt: tstz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.envVar] })],
+);
 
 export const workspaceTools = pgTable(
   "workspace_tools",
@@ -455,6 +483,7 @@ export const JOB_TYPES = [
   "stop_workspace",
   "delete_tenant",
   "sync_github",
+  "sync_agent_keys",
   "copilot_login",
   "update_limits",
   "build_image",

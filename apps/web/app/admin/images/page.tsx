@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { parseImageManifest } from "@agentbox/core/toolchain";
 import { db } from "@agentbox/db/client";
 import { PageHeader } from "@/components/page-header";
 import { imageOption } from "@/lib/admin/image-view";
@@ -23,7 +22,6 @@ export default async function AdminImagesPage() {
     versions: extractVersions(r.buildLog),
     rootfsPresent: r.rootfsPath !== null,
     gate,
-    slim: parseImageManifest(r.manifest)?.slim ?? false,
     usage,
     deleteQueued,
     lastDeleteError,

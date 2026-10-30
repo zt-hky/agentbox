@@ -4,6 +4,7 @@ import {
   catalogEntry,
   isManaged,
   planSchema,
+  requireEntry,
   resolveTarget,
   selectableLines,
   selectablePins,
@@ -57,6 +58,10 @@ export interface ToolRowView {
   lines: { line: string; latest: string }[];
   pins: string[];
   canInstall: boolean;
+  /** Package managers: the language runtime they install on top of. */
+  requires: ToolId | null;
+  /** Why `canInstall` is false even though nothing is installed (the language is not wanted). */
+  installBlockedReason: string | null;
   canUpgrade: boolean;
   canRemove: boolean;
   canRollback: boolean;
@@ -143,7 +148,7 @@ export function toRunView(r: typeof toolchainRuns.$inferSelect, withLog: boolean
 }
 
 /** Admin defaults for the tools a workspace has no row for yet. */
-function defaultFor(defaults: readonly ToolDefault[], entry: CatalogEntry) {
+export function defaultFor(defaults: readonly ToolDefault[], entry: CatalogEntry) {
   const d = defaults.find((x) => x.tool === entry.id);
   return {
     channel: d?.channel ?? entry.channels[0] ?? "latest",
@@ -201,6 +206,8 @@ export function buildToolRow(
     lines: selectableLines(entry, versions),
     pins: selectablePins(entry, versions),
     canInstall: !managed && !inFlight,
+    requires: entry.requires ?? null,
+    installBlockedReason: null,
     canUpgrade: managed && update !== null,
     canRemove: managed && desired,
     canRollback: managed && !!row?.previousVersion,
@@ -268,6 +275,13 @@ export async function loadToolsView(database: DbLike, userId: string): Promise<T
   const tools = CATALOG.filter((e) => !disabled.has(e.id)).map((e) =>
     buildToolRow(e, byTool.get(e.id), latest.get(e.id), defaultFor(settings.defaults, e)),
   );
+  // A package manager installs only on top of a language the user wants.
+  for (const t of tools) {
+    if (t.requires && !t.managed && !t.desired && !byTool.get(t.requires)?.desired) {
+      t.canInstall = false;
+      t.installBlockedReason = `Install ${requireEntry(t.requires).label} first`;
+    }
+  }
   const current =
     runRows.find((r) => (OPEN_RUN_STATUSES as readonly string[]).includes(r.status)) ?? runRows[0];
   const checked = latestRows

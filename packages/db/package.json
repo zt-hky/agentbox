@@ -7,12 +7,14 @@
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
     "./client": "./src/client.ts",
-    "./toolchain": "./src/toolchain.ts"
+    "./toolchain": "./src/toolchain.ts",
+    "./admin": "./src/admin.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json",
-    "generate": "drizzle-kit generate"
+    "generate": "drizzle-kit generate",
+    "reset-workspaces": "node scripts/reset-workspaces.ts"
   },
   "dependencies": {
     "@agentbox/core": "workspace:*",

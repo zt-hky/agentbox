@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { workspaceUrl } from "@agentbox/core/hosts";
 import { EmptyState } from "@/components/empty-state";
-import { KeyValueList } from "@/components/key-value-list";
 import { Mono } from "@/components/mono";
 import { PageHeader } from "@/components/page-header";
 import { PlanCard } from "@/components/plan-card";
@@ -11,6 +10,7 @@ import { Stat } from "@/components/stat";
 import { UsageChart } from "@/components/usage-chart";
 import { WorkspaceModule } from "@/components/workspace-module";
 import { Button } from "@/components/ui/button";
+import { db } from "@agentbox/db/client";
 import { baseDomain } from "@/lib/env";
 import { formatCredits, formatVnd } from "@/lib/money";
 import { billingDisplay, currentPrices, effectiveIdleTimeoutMinutes } from "@/lib/queries";
@@ -22,20 +22,15 @@ import {
   loadSubscription,
   loadWorkspace,
 } from "@/lib/user-data";
+import { loadDashboardToolSummary } from "@/lib/dashboard";
 import { SleepButton } from "./sleep-button";
+import { ToolsSummary } from "./tools-summary";
+import { DeleteWorkspaceButton, RestartButton } from "./workspace-controls";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
-
-const INSIDE = [
-  ["T3 Code", "Browser interface for running coding agents on your projects."],
-  ["VS Code", "A full editor in the browser, with extensions."],
-  ["Claude Code, Codex, Oh My Pi", "Terminal agents, ready to run from any shell."],
-  ["git and gh", "Your GitHub account, once connected under GitHub settings."],
-  ["Node 24, uv, ripgrep", "Common runtimes and search tools preinstalled."],
-] as const;
 
 export default async function DashboardPage() {
   const { user } = await requireActiveUser();
@@ -50,9 +45,13 @@ export default async function DashboardPage() {
   const idleTimeoutMinutes = await effectiveIdleTimeoutMinutes(
     subscription?.plan.idleTimeoutMinutes ?? null,
   );
-  const [usage, live] = workspace
-    ? await Promise.all([loadHourlyUsage(workspace.id), loadLiveReading(workspace)])
-    : [[], null];
+  const [usage, live, toolSummary] = workspace
+    ? await Promise.all([
+        loadHourlyUsage(workspace.id),
+        loadLiveReading(workspace),
+        loadDashboardToolSummary(db, user.id),
+      ])
+    : [[], null, null];
   const domain = baseDomain();
   const usable = workspace && workspace.status !== "deleted" && workspace.status !== "deleting";
   const now = new Date();
@@ -114,7 +113,7 @@ export default async function DashboardPage() {
       ) : (
         <EmptyState
           title="No workspace yet"
-          description="Your workspace is created when an administrator approves your account. If you were already approved, it should appear within a minute; reload this page to check."
+          description="Your workspace is created during setup. Reload this page; if it stays empty, an administrator can check your account."
         />
       )}
 
@@ -162,12 +161,24 @@ export default async function DashboardPage() {
         )}
       </Section>
 
-      <Section title="What's inside">
-        <KeyValueList items={INSIDE.map(([label, value]) => ({ label, value }))} />
-        <p className="mt-4 text-meta text-muted-foreground">
-          Your files live in <Mono>/workspace</Mono> and stay when the workspace sleeps.
-        </p>
-      </Section>
+      {toolSummary ? <ToolsSummary summary={toolSummary} /> : null}
+
+      {workspace && usable ? (
+        <Section
+          title="Manage workspace"
+          description={
+            <>
+              Your files live in <Mono>/workspace</Mono> and stay when the workspace sleeps or
+              restarts.
+            </>
+          }
+        >
+          <div className="flex flex-wrap gap-2">
+            {["running", "sleeping", "error"].includes(workspace.status) ? <RestartButton /> : null}
+            <DeleteWorkspaceButton slug={workspace.slug} />
+          </div>
+        </Section>
+      ) : null}
     </>
   );
 }

@@ -112,7 +112,7 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
           description={
             target.accessStatus === "active"
               ? "This account has access but no workspace. Create one to assign a plan."
-              : "This user has not been approved. Approving gives access, assigns a plan and provisions a workspace in one step."
+              : "This user has not been approved. Approving gives access and assigns a plan. The user creates the workspace during setup."
           }
         />
       )}

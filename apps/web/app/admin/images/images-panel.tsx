@@ -26,7 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { ActionResult } from "@/lib/action";
 import type { ImageVersions } from "@/lib/admin/system";
-import { shortImageId, type ImageOption } from "@/lib/admin/image-view";
+import { imageVersionLabel, shortImageId, type ImageOption } from "@/lib/admin/image-view";
 import type { GateFailure, ImageUsage, WorkspaceImageRef } from "@/lib/admin/images-ops";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -45,8 +45,6 @@ export interface ImageRow extends ImageOption {
   usage: ImageUsage;
   /** Live workspaces the image's toolchain gate rejects. */
   gate: GateFailure[];
-  /** The image bakes no runtimes or agent CLIs. */
-  slim: boolean;
   deleteQueued: boolean;
   lastDeleteError: string | null;
   overrideReason: string | null;
@@ -280,7 +278,7 @@ function ActivateDialog({
 function imageLabel(rows: ImageRow[], imageId: string | null): string {
   if (!imageId) return "never started";
   const r = rows.find((i) => i.imageId === imageId);
-  return `${r ? `${r.t3Ref} · ` : ""}${shortImageId(imageId)}`;
+  return `${r ? `${imageVersionLabel(r.version)} · ${r.t3Ref} · ` : ""}${shortImageId(imageId)}`;
 }
 
 function MoveDialog({
@@ -616,7 +614,10 @@ function ImageEntry({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex min-w-0 items-center gap-3">
           <StatusBadge status={r.status} />
-          <span className="truncate font-medium">
+          <span className="font-medium">
+            <Mono>{imageVersionLabel(r.version)}</Mono>
+          </span>
+          <span className="truncate text-muted-foreground">
             <Mono>{r.t3Ref}</Mono>
           </span>
           {r.t3Version ? (
@@ -674,12 +675,6 @@ function ImageEntry({
         {r.deleteQueued ? <Badge variant="outline">Delete queued</Badge> : null}
         {r.status === "building" || r.status === "failed" ? null : <ScanBadges scan={r.scan} />}
       </div>
-      {r.slim ? (
-        <p className="text-meta text-muted-foreground">
-          Slim image: no baked runtimes or agent CLIs. Workspaces need a completed toolchain
-          reconcile before they can use it.
-        </p>
-      ) : null}
       {r.status === "ready" || r.status === "retired" ? (
         <GateNotice failures={r.gate} intro="Cannot be activated or pinned for" />
       ) : null}
@@ -732,7 +727,6 @@ export function ImagesPanel({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [t3Ref, setT3Ref] = useState("omp-overlay");
-  const [slim, setSlim] = useState(false);
   const [activating, setActivating] = useState<ImageRow | null>(null);
   const [moving, setMoving] = useState<{ target: ImageRow; preselect: string[] | null } | null>(
     null,
@@ -744,14 +738,14 @@ export function ImagesPanel({
     <>
       <Section
         title="Build a new image"
-        description="Builds take several minutes. Only one build can run at a time."
+        description="Builds take several minutes and only one can run at a time. Every image is slim (T3 Code and VS Code only) and gets the next 3-digit build number as its version; users install languages and agent CLIs themselves."
       >
         <form
           className="flex flex-wrap items-end gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             start(async () => {
-              const res = await buildImage(t3Ref, slim);
+              const res = await buildImage(t3Ref);
               if (!res.ok) toast.error(res.error);
               else {
                 toast.success("Build queued");
@@ -769,12 +763,6 @@ export function ImagesPanel({
               className="font-mono"
             />
           </div>
-          <div className="flex items-center gap-2 pb-2">
-            <Checkbox id="slim" checked={slim} onCheckedChange={(c) => setSlim(c === true)} />
-            <Label htmlFor="slim" className="font-normal">
-              Slim (no baked runtimes or agent CLIs)
-            </Label>
-          </div>
           <Button type="submit" disabled={pending || building.some((r) => !isStale(r))}>
             Build image
           </Button>
@@ -782,7 +770,7 @@ export function ImagesPanel({
         {building.map((r) => (
           <div key={r.id} className="mt-5 space-y-2">
             <p className="text-sm font-medium">
-              Building <Mono>{r.t3Ref}</Mono>
+              Building <Mono>{imageVersionLabel(r.version)}</Mono> (<Mono>{r.t3Ref}</Mono>)
             </p>
             <BuildLog id={r.id} initial={r.buildLog} />
           </div>

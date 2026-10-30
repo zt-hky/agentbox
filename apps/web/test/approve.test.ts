@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq, ne, sql } from "drizzle-orm";
-import { decrypt } from "@agentbox/core/tokens";
+import { eq, ne } from "drizzle-orm";
 import { readSetting } from "@agentbox/db/client";
 import {
   accessRequests,
@@ -14,6 +13,7 @@ import {
   workspaces,
 } from "@agentbox/db/schema";
 import { grantAccess, openAccessRequest, recreateWorkspace } from "../lib/approve";
+import { createWorkspaceForUser } from "../lib/workspace-create";
 import { checkSlugAvailable } from "../lib/slug-taken";
 import { UserError } from "../lib/errors";
 import { createTestDb, seedAdmin, seedRequester, seedUser, type TestDb } from "./helpers/db";
@@ -34,7 +34,6 @@ const input = (userId: string, slug: string, now?: Date) => ({
   adminId,
   slug,
   planId,
-  encryptionKey: KEY,
   ip: "198.51.100.7",
   now,
 });
@@ -44,7 +43,7 @@ describe("grantAccess", () => {
     const { userId, requestId } = await seedRequester(t.db, "alice@example.com");
     const now = new Date("2026-01-31T10:00:00Z");
     const res = await grantAccess(t.db, input(userId, "alice", now));
-    expect(res.slot).toBeGreaterThanOrEqual(1);
+    expect(res).toEqual({ userId, slug: "alice" });
 
     const [req] = await t.db.select().from(accessRequests).where(eq(accessRequests.id, requestId));
     expect(req).toMatchObject({ status: "approved", decidedBy: adminId });
@@ -66,36 +65,23 @@ describe("grantAccess", () => {
     const [bal] = await t.db.select().from(creditBalances).where(eq(creditBalances.userId, userId));
     expect(bal!.balanceMicro).toBe(0n);
 
-    const [ws] = await t.db.select().from(workspaces).where(eq(workspaces.userId, userId));
-    expect(ws).toMatchObject({
-      slug: "alice",
-      slot: res.slot,
-      status: "provisioning",
-      imageId: null,
-    });
-    expect(ws!.id).toBe(res.workspaceId);
-    expect(decrypt(ws!.identitySecretEnc, KEY)).toMatch(/^[A-Za-z0-9_-]{43}$/);
-
-    const j = await t.db.select().from(jobs).where(eq(jobs.workspaceId, ws!.id));
-    expect(j).toHaveLength(1);
-    expect(j[0]).toMatchObject({ type: "provision_tenant", status: "queued", payload: {} });
+    // Approval activates access and reserves the slug; it never creates or provisions a workspace.
+    expect(u!.reservedSlug).toBe("alice");
+    expect(u!.onboardedAt).toBeNull();
+    expect(await t.db.select().from(workspaces).where(eq(workspaces.userId, userId))).toHaveLength(
+      0,
+    );
+    expect(await t.db.select().from(jobs).where(eq(jobs.type, "provision_tenant"))).toHaveLength(0);
 
     const audits = await t.db.select().from(auditLog).where(eq(auditLog.action, "access.approve"));
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ actorId: adminId, targetId: userId, ip: "198.51.100.7" });
   });
 
-  it("allocates distinct increasing slots", async () => {
-    const a = await seedRequester(t.db, "slota@example.com");
-    const b = await seedRequester(t.db, "slotb@example.com");
-    const ra = await grantAccess(t.db, input(a.userId, "slota"));
-    const rb = await grantAccess(t.db, input(b.userId, "slotb"));
-    expect(rb.slot).toBeGreaterThan(ra.slot);
-  });
-
   it("refuses a user who already has a workspace", async () => {
     const { userId } = await seedRequester(t.db, "twice@example.com");
     await grantAccess(t.db, input(userId, "twice"));
+    await createWorkspaceForUser(t.db, { userId, encryptionKey: KEY });
     await expect(grantAccess(t.db, input(userId, "twice2"))).rejects.toThrow(
       "already has a workspace",
     );
@@ -120,12 +106,12 @@ describe("grantAccess", () => {
     },
   );
 
-  it("gives an already-active account without a workspace one, without inventing a request", async () => {
+  it("gives an already-active account a plan and slug, without inventing a request", async () => {
     const userId = await seedUser(t.db, "boot@example.com", "active");
     await grantAccess(t.db, input(userId, "boot"));
-    expect(await t.db.select().from(workspaces).where(eq(workspaces.userId, userId))).toHaveLength(
-      1,
-    );
+    expect(
+      (await t.db.select().from(user).where(eq(user.id, userId)))[0]!.reservedSlug,
+    ).toBe("boot");
     expect(
       await t.db.select().from(accessRequests).where(eq(accessRequests.userId, userId)),
     ).toHaveLength(0);
@@ -133,11 +119,6 @@ describe("grantAccess", () => {
 
   it("rolls back everything when the slug is invalid, reserved or taken", async () => {
     const { userId, requestId } = await seedRequester(t.db, "bad@example.com");
-    const seqBefore = (
-      await t.db.execute<{ last_value: string; is_called: boolean }>(
-        sql`select last_value, is_called from tenant_slot_seq`,
-      )
-    ).rows[0]!;
     for (const [slug, msg] of [
       ["Bad Slug", "Slug must be"],
       ["admin", "reserved"],
@@ -155,12 +136,6 @@ describe("grantAccess", () => {
     expect(
       await t.db.select().from(subscriptions).where(eq(subscriptions.userId, userId)),
     ).toHaveLength(0);
-    const seqAfter = (
-      await t.db.execute<{ last_value: string; is_called: boolean }>(
-        sql`select last_value, is_called from tenant_slot_seq`,
-      )
-    ).rows[0]!;
-    expect(seqAfter).toEqual(seqBefore);
   });
 
   it("rejects an unknown plan", async () => {
@@ -247,43 +222,41 @@ describe("checkSlugAvailable", () => {
 });
 
 describe("recreateWorkspace", () => {
-  const markDeleted = async (userId: string, status: "deleted" | "deleting" = "deleted") => {
-    await t.db.update(workspaces).set({ status }).where(eq(workspaces.userId, userId));
+  const markDeleted = async (
+    userId: string,
+    status: "deleted" | "deleting" = "deleted",
+    dataKept = false,
+  ) => {
+    await t.db.update(workspaces).set({ status, dataKept }).where(eq(workspaces.userId, userId));
   };
   const granted = async (email: string, slug: string) => {
     const userId = await seedUser(t.db, email, "none");
-    const res = await grantAccess(t.db, input(userId, slug));
-    return { ...res, userId };
+    await grantAccess(t.db, input(userId, slug));
+    const { workspaceId } = await createWorkspaceForUser(t.db, { userId, encryptionKey: KEY });
+    return { userId, workspaceId };
   };
 
-  it("reuses the deleted row with the same slug, a new slot and secret, and queues provisioning", async () => {
+  it("re-approves a deleted workspace's user: active, slug reserved, onboarding reset, nothing provisioned", async () => {
     const g = await granted("re1@example.com", "recone");
-    const [before] = await t.db.select().from(workspaces).where(eq(workspaces.id, g.workspaceId));
     await t.db.delete(jobs).where(eq(jobs.workspaceId, g.workspaceId));
     await markDeleted(g.userId);
-    await t.db.update(user).set({ accessStatus: "suspended" }).where(eq(user.id, g.userId));
+    await t.db
+      .update(user)
+      .set({ accessStatus: "suspended", onboardedAt: new Date() })
+      .where(eq(user.id, g.userId));
     const [subBefore] = await t.db
       .select()
       .from(subscriptions)
       .where(eq(subscriptions.userId, g.userId));
 
     const res = await recreateWorkspace(t.db, input(g.userId, "recone"));
-    expect(res.workspaceId).toBe(g.workspaceId);
-    expect(res.slot).toBeGreaterThan(g.slot);
+    expect(res).toEqual({ userId: g.userId, slug: "recone" });
 
     const [ws] = await t.db.select().from(workspaces).where(eq(workspaces.userId, g.userId));
-    expect(ws).toMatchObject({
-      slug: "recone",
-      slot: res.slot,
-      status: "provisioning",
-      imageId: null,
-      startFailures: 0,
-    });
-    expect(ws!.identitySecretEnc).not.toBe(before!.identitySecretEnc);
-    const j = await t.db.select().from(jobs).where(eq(jobs.workspaceId, ws!.id));
-    expect(j.map((x) => [x.type, x.status])).toEqual([["provision_tenant", "queued"]]);
+    expect(ws).toMatchObject({ slug: "recone", status: "deleted" }); // reused at onboarding
+    expect(await t.db.select().from(jobs).where(eq(jobs.workspaceId, ws!.id))).toHaveLength(0);
     const [u] = await t.db.select().from(user).where(eq(user.id, g.userId));
-    expect(u!.accessStatus).toBe("active");
+    expect(u).toMatchObject({ accessStatus: "active", reservedSlug: "recone", onboardedAt: null });
     const [subAfter] = await t.db
       .select()
       .from(subscriptions)
@@ -302,8 +275,17 @@ describe("recreateWorkspace", () => {
     expect((await checkSlugAvailable(t.db, "rectwo", other)).ok).toBe(false);
 
     await recreateWorkspace(t.db, input(g.userId, "rectwonew"));
-    const [ws] = await t.db.select().from(workspaces).where(eq(workspaces.userId, g.userId));
-    expect(ws!.slug).toBe("rectwonew");
+    const [u] = await t.db.select().from(user).where(eq(user.id, g.userId));
+    expect(u!.reservedSlug).toBe("rectwonew");
+  });
+
+  it("keeps the slug when the workspace's data was kept", async () => {
+    const g = await granted("re5@example.com", "recfive");
+    await markDeleted(g.userId, "deleted", true);
+    await expect(recreateWorkspace(t.db, input(g.userId, "recfivenew"))).rejects.toThrow(
+      /kept data belongs to "recfive"/,
+    );
+    await recreateWorkspace(t.db, input(g.userId, "recfive"));
   });
 
   it("refuses while deleting, while live, and another user's slug", async () => {
@@ -316,9 +298,8 @@ describe("recreateWorkspace", () => {
       /still being deleted/,
     );
     await markDeleted(g.userId);
-    const h = await granted("re3b@example.com", "recthreeb");
+    await granted("re3b@example.com", "recthreeb");
     await expect(recreateWorkspace(t.db, input(g.userId, "recthreeb"))).rejects.toThrow(UserError);
-    expect(h.slot).toBeGreaterThan(0);
     const [ws] = await t.db.select().from(workspaces).where(eq(workspaces.userId, g.userId));
     expect(ws).toMatchObject({ status: "deleted", slug: "recthree" });
     await expect(recreateWorkspace(t.db, input("nobody", "recx"))).rejects.toThrow(UserError);

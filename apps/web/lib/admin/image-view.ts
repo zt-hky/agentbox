@@ -1,10 +1,12 @@
-import { isImageUsable } from "@agentbox/core/images";
+import { formatImageVersion, isImageUsable } from "@agentbox/core/images";
 import { extractVersions } from "./system";
 
 /** What the admin UI needs to name an image; safe to ship to client components. */
 export interface ImageOption {
   /** images.id */
   id: string;
+  /** Build number; its 3-digit form (`007`) is the Podman tag. */
+  version: number;
   /** Podman image id (null while building). */
   imageId: string | null;
   t3Ref: string;
@@ -13,6 +15,9 @@ export interface ImageOption {
   status: string;
   createdAt: string;
 }
+
+/** `7` -> `007`, the version shown in the admin UI and used as the Podman tag. */
+export const imageVersionLabel = (version: number) => formatImageVersion(version);
 
 export const shortImageId = (imageId: string | null | undefined) =>
   imageId ? imageId.slice(0, 12) : "none";
@@ -23,6 +28,7 @@ export function t3VersionOf(buildLog: string | null | undefined): string | null 
 
 export function imageOption(row: {
   id: string;
+  version: number;
   imageId: string | null;
   t3Ref: string;
   status: string;
@@ -31,6 +37,7 @@ export function imageOption(row: {
 }): ImageOption {
   return {
     id: row.id,
+    version: row.version,
     imageId: row.imageId,
     t3Ref: row.t3Ref,
     t3Version: t3VersionOf(row.buildLog),

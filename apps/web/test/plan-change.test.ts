@@ -10,6 +10,7 @@ import {
 } from "@agentbox/db/schema";
 import { FREE_PLAN_ID, CREDITS_ONLY_PLAN_ID } from "@agentbox/core/billing";
 import { grantAccess } from "../lib/approve";
+import { createWorkspaceForUser } from "../lib/workspace-create";
 import { UserError } from "../lib/errors";
 import { changeUserPlanTx } from "../lib/plan-change";
 import { createTestDb, seedAdmin, seedRequester, type TestDb } from "./helpers/db";
@@ -37,10 +38,10 @@ async function freeUser(credits: number) {
     adminId,
     slug: `user${n}`,
     planId: FREE_PLAN_ID,
-    encryptionKey: KEY,
     ip: null,
     now: NOW,
   });
+  await createWorkspaceForUser(t.db, { userId, encryptionKey: KEY, now: NOW });
   await t.db
     .update(creditBalances)
     .set({ balanceMicro: BigInt(credits) * 1_000_000n })

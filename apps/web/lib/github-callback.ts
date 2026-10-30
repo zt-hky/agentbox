@@ -5,11 +5,14 @@ import { githubConnections, workspaces } from "@agentbox/db/schema";
 import { eq } from "drizzle-orm";
 import { encryptionKey, githubConnectConfig } from "@/lib/env";
 import {
+  GH_NEXT_COOKIE,
   GH_STATE_COOKIE,
   exchangeCode,
   fetchGithubUser,
+  nextCookie,
   readCookie,
   redirectResponse,
+  returnBase,
   stateCookie,
   statesMatch,
 } from "@/lib/github";
@@ -18,6 +21,7 @@ import { getSession } from "@/lib/session";
 
 export async function handleGithubCallback(request: Request): Promise<Response> {
   const clearState = stateCookie("", 0);
+  const clear = [clearState, nextCookie("", 0)];
   const session = await getSession();
   if (!session || session.user.accessStatus !== "active")
     return redirectResponse("/login", [clearState]);
@@ -27,9 +31,11 @@ export async function handleGithubCallback(request: Request): Promise<Response> 
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
   const code = url.searchParams.get("code");
-  const cookieState = readCookie((await headers()).get("cookie"), GH_STATE_COOKIE);
+  const cookieHeader = (await headers()).get("cookie");
+  const cookieState = readCookie(cookieHeader, GH_STATE_COOKIE);
+  const base = returnBase(readCookie(cookieHeader, GH_NEXT_COOKIE));
   if (!code || !statesMatch(state, cookieState)) {
-    return redirectResponse("/settings/github?error=state", [clearState]);
+    return redirectResponse(`${base}?error=state`, clear);
   }
 
   try {
@@ -61,7 +67,7 @@ export async function handleGithubCallback(request: Request): Promise<Response> 
     });
   } catch (e) {
     console.error("github connect failed", e);
-    return redirectResponse("/settings/github?error=exchange", [clearState]);
+    return redirectResponse(`${base}?error=exchange`, clear);
   }
-  return redirectResponse("/settings/github?connected=1", [clearState]);
+  return redirectResponse(`${base}?connected=1`, clear);
 }

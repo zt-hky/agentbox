@@ -21,3 +21,9 @@ IFS=$_abx_old_ifs
 PATH="$HOME/.agentbox/bin:$HOME/.npm-global/bin:$HOME/.local/bin${_abx_rest:+:$_abx_rest}"
 export PATH
 unset _abx_rest _abx_old_ifs _abx_d
+
+# Agent credentials the user saved in AgentBox (written by the platform, 0600).
+if [ -r "$HOME/.agentbox/secrets.env" ]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.agentbox/secrets.env"
+fi

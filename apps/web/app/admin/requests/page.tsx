@@ -63,7 +63,7 @@ export default async function RequestsPage() {
     <>
       <PageHeader
         title="Access requests"
-        description="Approving gives access, assigns a plan and provisions the workspace in one step."
+        description="Approving gives access and assigns a plan. The user creates the workspace during setup."
       />
       <Section
         title="Waiting for approval"

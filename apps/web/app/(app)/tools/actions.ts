@@ -18,7 +18,7 @@ import {
   upgradeTool,
 } from "@/lib/toolchain/ops";
 import { loadRunPanel } from "@/lib/toolchain/view";
-import { getClientIp, requireActiveUser } from "@/lib/session";
+import { getClientIp, requireOnboardedUser } from "@/lib/session";
 
 const toolInput = z.object({ toolId: toolIdSchema });
 const selectionInput = z.object({
@@ -40,7 +40,7 @@ function parse<T>(schema: z.ZodType<T>, input: unknown): T {
 }
 
 async function actor() {
-  const { user } = await requireActiveUser();
+  const { user } = await requireOnboardedUser();
   return { userId: user.id, ip: await getClientIp() };
 }
 
@@ -94,7 +94,7 @@ export async function checkForUpdatesAction(): Promise<ActionResult<RefreshResul
 /** Polled every 2 s while a run is open; read-only. */
 export async function pollRunAction() {
   return guard(async () => {
-    const { user } = await requireActiveUser();
+    const { user } = await requireOnboardedUser();
     return loadRunPanel(db, user.id);
   });
 }

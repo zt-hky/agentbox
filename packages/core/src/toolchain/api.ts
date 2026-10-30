@@ -13,7 +13,7 @@ export const TOOLCHAIN_ENV_VERSION = 1;
 /** mise backend: a core tool name or `<backend>:<owner/name>`. Options travel separately. */
 export const backendSpecSchema = z
   .string()
-  .regex(/^(?:node|bun|python|[a-z]{2,10}:[A-Za-z0-9@/_.-]{1,120})$/);
+  .regex(/^(?:node|bun|python|rust|go|java|[a-z]{2,10}:[A-Za-z0-9@/_.-]{1,120})$/);
 
 /** Only these backend options exist; values are URL/checksum characters, never shell syntax. */
 export const backendOptionsSchema = z
@@ -45,7 +45,7 @@ export const agentStepSchema = z
       )
       .min(1)
       .max(8),
-    versionArgs: z.array(z.string().regex(/^-{1,2}[a-z][a-z-]*$/)).max(3),
+    versionArgs: z.array(z.string().regex(/^(?:-{1,2}[a-z][a-z-]*|version)$/)).max(3),
   })
   .superRefine((s, ctx) => {
     if ((s.action === "install" || s.action === "relink") && s.version === null)

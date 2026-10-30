@@ -10,6 +10,7 @@ import {
 } from "@agentbox/db/schema";
 import {
   activateImageWithMove,
+  allocateImage,
   bulkMoveWorkspaces,
   evaluateWorkspaceGates,
   loadImageOverview,
@@ -17,8 +18,12 @@ import {
   requestWorkspaceReconciles,
   setWorkspaceImage,
 } from "../lib/admin/images-ops";
+import { formatImageVersion } from "@agentbox/core/images";
 import { UserError } from "../lib/errors";
 import { createTestDb, seedAdmin, seedUser, type TestDb } from "./helpers/db";
+
+let imageVersionCounter = 0;
+const nextImageVersion = () => ++imageVersionCounter;
 
 let t: TestDb;
 let adminId: string;
@@ -50,7 +55,7 @@ async function seedImage(
 ) {
   const [row] = await t.db
     .insert(images)
-    .values({
+    .values({ version: nextImageVersion(),
       imageId,
       rootfsPath: imageId ? `/r/${imageId}` : null,
       t3Ref: `ref-${imageId?.slice(0, 2) ?? "none"}`,
@@ -460,5 +465,36 @@ describe("toolchain image gate", () => {
       .where(eq(auditLog.action, "toolchain.reconcile"));
     expect(audits).toHaveLength(1);
     await rejects(requestWorkspaceReconciles(t.db, actor(), []), /at least one/);
+  });
+});
+
+describe("allocateImage", () => {
+  it("numbers builds max + 1 and never reuses a number", async () => {
+    const a = await allocateImage(t.db, { t3Ref: "main", createdBy: adminId });
+    const b = await allocateImage(t.db, { t3Ref: "main", createdBy: adminId });
+    expect(b.version).toBe(a.version + 1);
+    await t.db.delete(images).where(eq(images.id, a.id));
+    const c = await allocateImage(t.db, { t3Ref: "main", createdBy: adminId });
+    expect(c.version).toBe(b.version + 1);
+    const [row] = await t.db.select().from(images).where(eq(images.id, c.id));
+    expect(row).toMatchObject({ status: "building", t3Ref: "main", version: c.version });
+  });
+
+  it("starts at 1 on an empty table and formats as a 3-digit tag", async () => {
+    await t.db.delete(images);
+    const first = await allocateImage(t.db, { t3Ref: "main", createdBy: null });
+    expect(first.version).toBe(1);
+    expect(formatImageVersion(first.version)).toBe("001");
+    expect(formatImageVersion(42)).toBe("042");
+    expect(formatImageVersion(999)).toBe("999");
+  });
+
+  it("refuses a duplicate version at the database level", async () => {
+    await t.db.delete(images);
+    await seedImage("ready", A);
+    const [only] = await t.db.select().from(images);
+    await expect(
+      t.db.insert(images).values({ version: only!.version, t3Ref: "x", status: "building" }),
+    ).rejects.toThrow();
   });
 });

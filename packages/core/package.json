@@ -16,7 +16,8 @@
     "./settings": "./src/settings.ts",
     "./images": "./src/images.ts",
     "./toolchain": "./src/toolchain/index.ts",
-    "./accounts": "./src/accounts.ts"
+    "./accounts": "./src/accounts.ts",
+    "./agent-credentials": "./src/agent-credentials.ts"
   },
   "scripts": {
     "test": "vitest run",

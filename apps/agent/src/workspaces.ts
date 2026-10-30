@@ -1,6 +1,7 @@
 import type { CopilotProviderRequest } from "@agentbox/core/accounts";
 import { stat } from "node:fs/promises";
 import type {
+  AgentKeysRequest,
   GithubConnectRequest,
   WorkspaceLogResponse,
   WorkspaceTopResponse,
@@ -14,6 +15,7 @@ import {
   copilotLogout,
   ghDisconnect,
   setCopilotProvider,
+  writeAgentKeys,
   type ContainerExec,
 } from "./accounts.ts";
 import {
@@ -239,6 +241,14 @@ export function githubDisconnect(ws: string): Promise<void> {
     await requireRunning(ws);
     await ghDisconnect(execFor(ws));
     logEvent({ ws, event: "github_disconnected" });
+  });
+}
+
+export function agentKeysOp(ws: string, req: AgentKeysRequest): Promise<void> {
+  return withLock(ws, async () => {
+    await requireRunning(ws);
+    await writeAgentKeys(execFor(ws), req.keys);
+    logEvent({ ws, event: "agent_keys_synced", count: Object.keys(req.keys).length });
   });
 }
 

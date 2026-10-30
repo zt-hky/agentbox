@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { encrypt } from "@agentbox/core";
 import {
+  agentKeys,
   githubConnections,
   images,
   jobs,
@@ -15,6 +16,9 @@ import { createClock, makeCtx } from "./helpers/ctx.ts";
 import { createTestDb, resetDb, type TestDb } from "./helpers/db.ts";
 import { IMAGE_ID, startFakeAgent, type FakeAgent } from "./helpers/fake-agent.ts";
 import { ENC_KEY, seedWorld } from "./helpers/seed.ts";
+
+let imageVersionCounter = 0;
+const nextImageVersion = () => ++imageVersionCounter;
 
 let t: TestDb;
 let agent: FakeAgent;
@@ -78,7 +82,13 @@ async function enqueue(
 async function activeImage() {
   await t.db
     .insert(images)
-    .values({ imageId: IMAGE_ID, rootfsPath: "/r", t3Ref: "main", status: "active" });
+    .values({
+      version: nextImageVersion(),
+      imageId: IMAGE_ID,
+      rootfsPath: "/r",
+      t3Ref: "main",
+      status: "active",
+    });
 }
 
 describe("job runner: retry and backoff", () => {
@@ -154,6 +164,66 @@ describe("job handlers", () => {
       diskGb: 5,
       limits: { cpus: 1, memoryMb: 2048, pidsLimit: 512, inodes: 500000 },
     });
+  });
+
+  it("provision_tenant of an onboarding workspace (toolchain pending) queues the start", async () => {
+    const w = await seedWorld(t.db, {
+      status: "provisioning",
+      workspace: { toolchainPending: true },
+    });
+    await enqueue("provision_tenant", w.workspaceId);
+    await runAll();
+    expect((await ws(w.workspaceId)).status).toBe("sleeping");
+    const queued = await t.db.select().from(jobs).where(eq(jobs.type, "start_workspace"));
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.workspaceId).toBe(w.workspaceId);
+  });
+
+  it("provision_tenant without a pending toolchain leaves the workspace asleep", async () => {
+    const w = await seedWorld(t.db, { status: "provisioning" });
+    await enqueue("provision_tenant", w.workspaceId);
+    await runAll();
+    expect(await t.db.select().from(jobs).where(eq(jobs.type, "start_workspace"))).toHaveLength(0);
+  });
+
+  it("start_workspace writes the user's agent keys into the workspace, decrypted", async () => {
+    await activeImage();
+    const w = await seedWorld(t.db, { status: "sleeping" });
+    await t.db.insert(agentKeys).values([
+      { userId: w.userId, envVar: "OPENAI_API_KEY", valueEnc: encrypt("sk-openai", ENC_KEY) },
+      { userId: w.userId, envVar: "ANTHROPIC_API_KEY", valueEnc: encrypt("sk-ant", ENC_KEY) },
+    ]);
+    await enqueue("start_workspace", w.workspaceId);
+    await runAll();
+    expect(agent.callsTo("PUT /v1/workspaces/alice/agent-keys")[0]!.body).toEqual({
+      keys: { OPENAI_API_KEY: "sk-openai", ANTHROPIC_API_KEY: "sk-ant" },
+    });
+  });
+
+  it("sync_agent_keys pushes the full key set when running; a sleeping workspace waits for its start", async () => {
+    const sleeping = await seedWorld(t.db, { slug: "sleepy", slot: 2, status: "sleeping" });
+    await enqueue("sync_agent_keys", sleeping.workspaceId);
+    await runAll();
+    expect(agent.calls.filter((c) => c.path.endsWith("/agent-keys"))).toHaveLength(0);
+
+    const running = await seedWorld(t.db, { slug: "runner", slot: 3, status: "running" });
+    await t.db.insert(agentKeys).values({
+      userId: running.userId,
+      envVar: "XAI_API_KEY",
+      valueEnc: encrypt("xai-1", ENC_KEY),
+    });
+    await t.db.delete(jobs);
+    await enqueue("sync_agent_keys", running.workspaceId);
+    await runAll();
+    expect(agent.callsTo("PUT /v1/workspaces/runner/agent-keys")[0]!.body).toEqual({
+      keys: { XAI_API_KEY: "xai-1" },
+    });
+    // No keys left: the file is cleared (empty set), not left stale.
+    await t.db.delete(agentKeys);
+    await t.db.delete(jobs);
+    await enqueue("sync_agent_keys", running.workspaceId);
+    await runAll();
+    expect(agent.callsTo("PUT /v1/workspaces/runner/agent-keys")[1]!.body).toEqual({ keys: {} });
   });
 
   it("start_workspace passes image, plan limits and decrypted identity env, then reconciles GitHub", async () => {
@@ -374,6 +444,22 @@ describe("job handlers", () => {
     expect((await t.db.select().from(workspaceSessions))[0]!.revokedAt).not.toBeNull();
   });
 
+  it("delete_tenant with keepData passes ?keepData=1 and records that the home was kept", async () => {
+    const w = await seedWorld(t.db, { status: "deleting" });
+    await enqueue("delete_tenant", w.workspaceId, { keepData: true });
+    await runAll();
+    expect(agent.callsTo("DELETE /v1/tenants/alice")[0]!.query).toBe("?keepData=1");
+    expect(await ws(w.workspaceId)).toMatchObject({ status: "deleted", dataKept: true });
+  });
+
+  it("delete_tenant without keepData wipes and clears the kept flag", async () => {
+    const w = await seedWorld(t.db, { status: "deleting", workspace: { dataKept: true } });
+    await enqueue("delete_tenant", w.workspaceId, {});
+    await runAll();
+    expect(agent.callsTo("DELETE /v1/tenants/alice")[0]!.query).toBe("");
+    expect(await ws(w.workspaceId)).toMatchObject({ status: "deleted", dataKept: false });
+  });
+
   it("sync_github: sleeping sets the pending flag; running connects or disconnects; 409 stays pending", async () => {
     const sleeping = await seedWorld(t.db, { status: "sleeping" });
     await enqueue("sync_github", sleeping.workspaceId);
@@ -428,12 +514,12 @@ describe("job handlers", () => {
   it("build_image fills imageId/rootfsPath/scanSummary/log on success", async () => {
     const [row] = await t.db
       .insert(images)
-      .values({ t3Ref: "omp-overlay", status: "building" })
+      .values({ version: nextImageVersion(), t3Ref: "omp-overlay", status: "building" })
       .returning();
     const id = await enqueue("build_image", null, { imageRowId: row!.id, t3Ref: "omp-overlay" });
     await runAll();
     const call = agent.callsTo("POST /v1/images/build")[0]!;
-    expect(call.body).toEqual({ jobId: id, t3Ref: "omp-overlay" });
+    expect(call.body).toEqual({ jobId: id, t3Ref: "omp-overlay", version: row!.version });
     const [img] = await t.db.select().from(images).where(eq(images.id, row!.id));
     expect(img).toMatchObject({
       status: "ready",
@@ -451,7 +537,7 @@ describe("job handlers", () => {
   it("build_image failure marks the row failed with the log tail and is not retried", async () => {
     const [row] = await t.db
       .insert(images)
-      .values({ t3Ref: "main", status: "building" })
+      .values({ version: nextImageVersion(), t3Ref: "main", status: "building" })
       .returning();
     agent.on("POST /v1/images/build", {
       status: 500,
@@ -473,7 +559,13 @@ describe("job handlers", () => {
     const OTHER = "b".repeat(64);
     const [pin] = await t.db
       .insert(images)
-      .values({ imageId: OTHER, rootfsPath: "/r2", t3Ref: "old", status: "ready" })
+      .values({
+        version: nextImageVersion(),
+        imageId: OTHER,
+        rootfsPath: "/r2",
+        t3Ref: "old",
+        status: "ready",
+      })
       .returning();
     const w = await seedWorld(t.db, { status: "sleeping", workspace: { pinnedImageId: pin!.id } });
     agent.on("POST /v1/workspaces/alice/start", () => ({
@@ -492,7 +584,13 @@ describe("job handlers", () => {
     await activeImage();
     const [pin] = await t.db
       .insert(images)
-      .values({ imageId: "c".repeat(64), rootfsPath: null, t3Ref: "gone", status: "retired" })
+      .values({
+        version: nextImageVersion(),
+        imageId: "c".repeat(64),
+        rootfsPath: null,
+        t3Ref: "gone",
+        status: "retired",
+      })
       .returning();
     const w = await seedWorld(t.db, { status: "sleeping", workspace: { pinnedImageId: pin!.id } });
     const id = await enqueue("start_workspace", w.workspaceId);
@@ -505,7 +603,13 @@ describe("job handlers", () => {
   it("delete_image refuses pinned images and images a running workspace uses; success clears rootfsPath", async () => {
     const [row] = await t.db
       .insert(images)
-      .values({ imageId: IMAGE_ID, rootfsPath: "/r", t3Ref: "main", status: "ready" })
+      .values({
+        version: nextImageVersion(),
+        imageId: IMAGE_ID,
+        rootfsPath: "/r",
+        t3Ref: "main",
+        status: "ready",
+      })
       .returning();
     const w = await seedWorld(t.db, { workspace: { pinnedImageId: row!.id, status: "sleeping" } });
     const id = await enqueue("delete_image", null, { imageRowId: row!.id });
@@ -539,7 +643,13 @@ describe("job handlers", () => {
   it("delete_image removes via the agent and retires the row; refuses the active image", async () => {
     const [row] = await t.db
       .insert(images)
-      .values({ imageId: IMAGE_ID, rootfsPath: "/r", t3Ref: "main", status: "ready" })
+      .values({
+        version: nextImageVersion(),
+        imageId: IMAGE_ID,
+        rootfsPath: "/r",
+        t3Ref: "main",
+        status: "ready",
+      })
       .returning();
     await enqueue("delete_image", null, { imageRowId: row!.id });
     await runAll();

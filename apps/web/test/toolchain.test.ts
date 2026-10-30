@@ -210,6 +210,29 @@ describe("tool actions", () => {
     await rejects(installTool(t.db, actorOf(userId), { toolId: "grok" }), /already installed/);
   });
 
+  it("installs a package manager only when its language is wanted", async () => {
+    const { userId, ws } = await seedTenant(t.db);
+    const view = await loadToolsView(t.db, userId);
+    const maven = view!.tools.find((x) => x.toolId === "maven")!;
+    expect(maven).toMatchObject({ kind: "package-manager", requires: "java", canInstall: false });
+    expect(maven.installBlockedReason).toBe("Install Java first");
+    await rejects(installTool(t.db, actorOf(userId), { toolId: "maven" }), /Maven needs Java/);
+    await rejects(
+      selectToolVersion(t.db, actorOf(userId), {
+        toolId: "maven",
+        selection: { channel: "latest" },
+      }),
+      /Maven needs Java/,
+    );
+    expect(await t.db.select().from(workspaceTools).where(and(eq(workspaceTools.workspaceId, ws.id), eq(workspaceTools.toolId, "maven")))).toHaveLength(0);
+
+    // Node is a default (wanted) language, so its package managers install.
+    const pnpm = (await loadToolsView(t.db, userId))!.tools.find((x) => x.toolId === "pnpm")!;
+    expect(pnpm).toMatchObject({ canInstall: true, installBlockedReason: null });
+    await installTool(t.db, actorOf(userId), { toolId: "pnpm" });
+    expect(await rowOf(ws.id, "pnpm")).toMatchObject({ desired: true, channel: "latest" });
+  });
+
   it("rolls back only when a previous version is kept", async () => {
     const { userId, ws } = await seedTenant(t.db);
     await markInstalled(t.db, ws.id, "bun", { channel: "latest", installedVersion: "1.3.2" });

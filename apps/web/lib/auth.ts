@@ -31,6 +31,11 @@ function createAuth() {
           defaultValue: "none",
           input: false,
         },
+        onboardedAt: {
+          type: "date",
+          required: false,
+          input: false,
+        },
       },
     },
     socialProviders: {

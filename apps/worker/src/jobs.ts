@@ -12,6 +12,7 @@ import {
   type InspectWorkspaceResult,
 } from "@agentbox/core/job-contracts";
 import {
+  agentKeys,
   githubConnections,
   images,
   jobs,
@@ -23,7 +24,7 @@ import {
 import { AgentError } from "./agent-client.ts";
 import { errMessage } from "./log.ts";
 import { reconcileCopilot, startCopilotLogin } from "./accounts.ts";
-import { addEvent } from "./queue.ts";
+import { addEvent, enqueueJob } from "./queue.ts";
 import { reconcileAfterStart, reconcileToolchain } from "./toolchain.ts";
 import type { Ctx } from "./types.ts";
 
@@ -77,8 +78,8 @@ const stopPayloadSchema = z.object({
 const buildPayloadSchema = z.object({
   imageRowId: z.uuid(),
   t3Ref: z.string().min(1),
-  slim: z.boolean().optional(),
 });
+const deletePayloadSchema = z.object({ keepData: z.boolean().optional() });
 const deleteImagePayloadSchema = z.object({ imageRowId: z.uuid() });
 
 async function loadTenant(ctx: Ctx, job: JobRow) {
@@ -142,6 +143,24 @@ export async function reconcileGithub(ctx: Ctx, ws: WorkspaceRow): Promise<void>
     throw e;
   }
   await ctx.db.update(workspaces).set({ githubSyncPending: false }).where(eq(workspaces.id, ws.id));
+}
+
+/**
+ * Write the user's saved agent credentials into the running workspace (`~/.agentbox/secrets.env`,
+ * replaced as a whole). A workspace that is not running picks them up on its next start.
+ */
+export async function syncAgentKeys(ctx: Ctx, ws: WorkspaceRow): Promise<void> {
+  if (ws.status !== "running") return;
+  const rows = await ctx.db.select().from(agentKeys).where(eq(agentKeys.userId, ws.userId));
+  const keys: Record<string, string> = {};
+  for (const r of rows) keys[r.envVar] = decrypt(r.valueEnc, ctx.config.encryptionKey);
+  try {
+    await ctx.agent.syncAgentKeys(ws.slug, { keys });
+  } catch (e) {
+    // 409: the container is not running (anymore); the next start syncs.
+    if (e instanceof AgentError && e.status === 409) return;
+    throw e;
+  }
 }
 
 async function tailBuildLog(ctx: Ctx, jobId: string, imageRowId: string): Promise<string | null> {
@@ -224,6 +243,14 @@ async function startWorkspace(
       }
     }
   }
+  const [fresh] = await ctx.db.select().from(workspaces).where(eq(workspaces.id, ws.id));
+  if (fresh) {
+    try {
+      await syncAgentKeys(ctx, fresh);
+    } catch (e) {
+      ctx.log.warn("agent key sync after start failed", { ws: ws.slug, error: errMessage(e) });
+    }
+  }
   await reconcileAfterStart(ctx, ws.id);
 }
 
@@ -259,6 +286,10 @@ export const handlers: Record<JobRow["type"], Handler> = {
       .update(workspaces)
       .set({ status: "sleeping" })
       .where(and(eq(workspaces.id, ws.id), eq(workspaces.status, "provisioning")));
+    // Onboarding creates the workspace with the toolchain pending: bring it up straight away so
+    // the chosen tools install (the start hook queues the reconcile).
+    if (ws.toolchainPending)
+      await enqueueJob(ctx.db, { type: "start_workspace", workspaceId: ws.id });
   },
 
   async start_workspace(ctx, job) {
@@ -305,11 +336,12 @@ export const handlers: Record<JobRow["type"], Handler> = {
   async delete_tenant(ctx, job) {
     const { ws } = await loadTenant(ctx, job);
     if (ws.status === "deleted") return;
+    const { keepData } = deletePayloadSchema.parse(job.payload ?? {});
     await ctx.db.update(workspaces).set({ status: "deleting" }).where(eq(workspaces.id, ws.id));
-    await ctx.agent.deleteTenant(ws.slug);
+    await ctx.agent.deleteTenant(ws.slug, { keepData: keepData === true });
     await ctx.db
       .update(workspaces)
-      .set({ status: "deleted", awakeSince: null })
+      .set({ status: "deleted", awakeSince: null, dataKept: keepData === true })
       .where(eq(workspaces.id, ws.id));
     await ctx.db
       .update(workspaceSessions)
@@ -321,6 +353,12 @@ export const handlers: Record<JobRow["type"], Handler> = {
     const { ws } = await loadTenant(ctx, job);
     if (ws.status === "deleted" || ws.status === "deleting") return;
     await reconcileGithub(ctx, ws);
+  },
+
+  async sync_agent_keys(ctx, job) {
+    const { ws } = await loadTenant(ctx, job);
+    if (ws.status === "deleted" || ws.status === "deleting") return;
+    await syncAgentKeys(ctx, ws);
   },
 
   async copilot_login(ctx, job) {
@@ -336,13 +374,15 @@ export const handlers: Record<JobRow["type"], Handler> = {
   },
 
   async build_image(ctx, job) {
-    const { imageRowId, t3Ref, slim } = buildPayloadSchema.parse(job.payload);
+    const { imageRowId, t3Ref } = buildPayloadSchema.parse(job.payload);
+    const [imageRow] = await ctx.db.select().from(images).where(eq(images.id, imageRowId));
+    if (!imageRow) throw new NonRetryableError(`image row ${imageRowId} not found`);
     const timer = setInterval(() => void tailBuildLog(ctx, job.id, imageRowId), BUILD_LOG_POLL_MS);
     try {
       const out = await ctx.agent.buildImage({
         jobId: job.id,
         t3Ref,
-        ...(slim === undefined ? {} : { slim }),
+        version: imageRow.version,
       });
       const log = await tailBuildLog(ctx, job.id, imageRowId);
       await ctx.db

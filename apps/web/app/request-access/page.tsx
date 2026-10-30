@@ -68,7 +68,7 @@ export default async function RequestAccessPage() {
   const headings: Record<string, { title: string; text: string }> = {
     pending: {
       title: "Your request is waiting for approval",
-      text: "An administrator reviews every new account before creating its workspace. You do not need to do anything else; this page checks every 30 seconds and moves on once you are approved.",
+      text: "An administrator reviews every new account before you can set up a workspace. You do not need to do anything else; this page checks every 30 seconds and moves on once you are approved.",
     },
     none: {
       title: "Request access",

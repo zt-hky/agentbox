@@ -22,6 +22,12 @@ import {
 } from "@/lib/admin/workspaces-ops";
 import type { JobView } from "@/lib/admin/workspaces";
 
+const adminDeleteInput = z.object({
+  confirm: z.string().min(1).max(64),
+  keepData: z.boolean(),
+  afterDelete: z.enum(["onboard", "suspend"]),
+});
+
 async function loadWorkspace(tx: Pick<typeof db, "select">, slug: string) {
   const rows = await tx
     .select()
@@ -63,10 +69,11 @@ export async function adminStopWorkspace(slug: string) {
 }
 
 /** Typed-slug confirmed delete: web sets `deleting`, the worker finishes via `delete_tenant`. */
-export async function adminDeleteWorkspace(slug: string, confirm: string) {
+export async function adminDeleteWorkspace(slug: string, input: unknown) {
   return guard(async () => {
     const { admin, ip } = await adminContext();
-    await deleteWorkspaceAsAdmin(db, { adminId: admin.id, ip }, slug, confirm);
+    const parsed = adminDeleteInput.parse(input);
+    await deleteWorkspaceAsAdmin(db, { adminId: admin.id, ip }, slug, parsed);
     revalidatePath("/admin/workspaces");
     revalidatePath(`/admin/workspaces/${slug}`);
   });

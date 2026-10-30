@@ -1,6 +1,7 @@
 import { open, readFile, readdir, rename, rm, mkdir, stat } from "node:fs/promises";
 import type { BuildImageRequest, BuildImageResponse } from "@agentbox/core/agent-api";
 import { imageIdSchema } from "@agentbox/core/agent-api";
+import { formatImageVersion } from "@agentbox/core/images";
 import { manifestFromVersions } from "@agentbox/core/toolchain";
 import { buildArgv, logToFileArgv, rootfsPath, transportPrefix, trivyArgv } from "./argv.ts";
 import {
@@ -47,7 +48,7 @@ export async function buildImage(req: BuildImageRequest): Promise<BuildImageResp
   building = req.jobId;
   const t0 = Date.now();
   const { jobId } = req;
-  const tag = `${IMAGE_REPO}:${jobId}`;
+  const tag = `${IMAGE_REPO}:${formatImageVersion(req.version)}`;
   const container = `abx-export-${jobId}`;
   const logPath = `${BUILD_LOG_DIR}/${jobId}.log`;
   const tmpDir = `${ROOTFS_DIR}/.tmp-${jobId}`;
@@ -66,7 +67,7 @@ export async function buildImage(req: BuildImageRequest): Promise<BuildImageResp
     await bq(["mkdir", "-p", BUILD_LOG_DIR, TRIVY_CACHE_DIR]);
     await bq(["sh", "-c", ': > "$1"', "sh", logPath]);
 
-    await bq(logToFileArgv(logPath, buildArgv(req.t3Ref, tag, BUILD_CONTEXT, req.slim === true)), {
+    await bq(logToFileArgv(logPath, buildArgv(req.t3Ref, tag, BUILD_CONTEXT)), {
       timeoutMs: BUILD_TIMEOUT_MS,
     });
     const rawId = (

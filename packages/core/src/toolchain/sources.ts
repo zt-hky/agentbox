@@ -2,6 +2,11 @@ import type { CatalogEntry } from "./catalog.ts";
 import {
   MUSE_CHANNEL_URL,
   parseMuseChannel,
+  parseAdoptium,
+  parseMavenMetadata,
+  parsePypi,
+  parseGithubReleases,
+  parseGoDl,
   parseMuseManifest,
   parseNodeIndex,
   parseNpmPackument,
@@ -22,9 +27,17 @@ export type FetchLike = (
 ) => Promise<FetchResponse>;
 
 export const NODE_INDEX_URL = "https://nodejs.org/dist/index.json";
+export const GO_DL_URL = "https://go.dev/dl/?mode=json&include=all";
+export const ADOPTIUM_URL =
+  "https://api.adoptium.net/v3/info/release_versions?release_type=ga&image_type=jdk&architecture=x64&os=linux&vendor=eclipse&page_size=50&sort_order=DESC";
+export const githubReleasesUrl = (repo: string) =>
+  `https://api.github.com/repos/${repo}/releases?per_page=100`;
 export const PYTHON_VERSIONS_URL = "https://mise-versions.jdx.dev/python";
 export const npmPackumentUrl = (pkg: string) =>
   `https://registry.npmjs.org/${pkg.startsWith("@") ? `@${encodeURIComponent(pkg.slice(1))}` : pkg}`;
+export const pypiJsonUrl = (pkg: string) => `https://pypi.org/pypi/${pkg}/json`;
+export const mavenMetadataUrl = (group: string, artifact: string) =>
+  `https://repo1.maven.org/maven2/${group.replaceAll(".", "/")}/${artifact}/maven-metadata.xml`;
 
 async function ok(res: FetchResponse, url: string): Promise<FetchResponse> {
   if (!res.ok) throw new Error(`GET ${url} returned HTTP ${res.status}`);
@@ -60,6 +73,37 @@ export async function fetchLatestInfo(
         url,
       );
       info = parseNpmPackument(await res.json());
+      break;
+    }
+    case "pypi": {
+      const url = pypiJsonUrl(src.pkg);
+      const res = await ok(await fetchImpl(url), url);
+      info = parsePypi(await res.json());
+      break;
+    }
+    case "maven-central": {
+      const url = mavenMetadataUrl(src.group, src.artifact);
+      const res = await ok(await fetchImpl(url), url);
+      info = parseMavenMetadata(await res.text());
+      break;
+    }
+    case "go-dl": {
+      const res = await ok(await fetchImpl(GO_DL_URL), GO_DL_URL);
+      info = parseGoDl(await res.json());
+      break;
+    }
+    case "adoptium": {
+      const res = await ok(await fetchImpl(ADOPTIUM_URL), ADOPTIUM_URL);
+      info = parseAdoptium(await res.json());
+      break;
+    }
+    case "github-releases": {
+      const url = githubReleasesUrl(src.repo);
+      const res = await ok(
+        await fetchImpl(url, { headers: { accept: "application/vnd.github+json" } }),
+        url,
+      );
+      info = parseGithubReleases(await res.json());
       break;
     }
     case "muse-channel": {

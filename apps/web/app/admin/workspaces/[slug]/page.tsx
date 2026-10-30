@@ -175,6 +175,7 @@ export default async function AdminWorkspacePage({
             startFailures={w.startFailures}
             ownerId={u.id}
             ownerEmail={u.email}
+            ownerIsAdmin={u.role === "admin"}
             planName={plan?.name ?? null}
             recreate={recreate}
             image={imagePanel}

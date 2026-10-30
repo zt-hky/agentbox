@@ -10,6 +10,7 @@ import {
   mergeCopilotProvider,
   parseLoginSnapshot,
   removeGhCredentialHelpers,
+  writeAgentKeys,
   setCopilotProvider,
   type ContainerExec,
 } from "../src/accounts.ts";
@@ -273,5 +274,40 @@ describe("disconnect reverse state", () => {
     const { exec, calls } = fakeExec(() => ({}));
     await copilotLoginCancel(exec);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("writeAgentKeys", () => {
+  it("writes the whole set to ~/.agentbox/secrets.env via stdin, redacting every value", async () => {
+    const calls: { args: string[]; input?: string; redact?: string[] }[] = [];
+    const exec: ContainerExec = async (args, opts) => {
+      calls.push({ args, ...opts });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await writeAgentKeys(exec, { OPENAI_API_KEY: "sk-1", ANTHROPIC_API_KEY: "it's" });
+    expect(calls).toHaveLength(1);
+    const [c] = calls;
+    expect(c!.args.slice(0, 2)).toEqual(["bash", "-c"]);
+    const script = c!.args[2]!;
+    expect(script).toContain("secrets.env");
+    expect(script).toContain("umask 077");
+    expect(script).toContain("chmod 600");
+    expect(script).toContain("mv -f");
+    // The secrets travel on stdin only, never in the script or argv.
+    expect(script).not.toContain("sk-1");
+    expect(c!.input).toBe(
+      "# Managed by AgentBox. Edit credentials in Settings.\nexport ANTHROPIC_API_KEY='it'\\''s'\nexport OPENAI_API_KEY='sk-1'\n",
+    );
+    expect(c!.redact).toEqual(["sk-1", "it's"]);
+  });
+
+  it("an empty set clears the file", async () => {
+    let input = "x";
+    const exec: ContainerExec = async (_a, opts) => {
+      input = opts?.input ?? "";
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await writeAgentKeys(exec, {});
+    expect(input).toBe("# Managed by AgentBox. Edit credentials in Settings.\n");
   });
 });

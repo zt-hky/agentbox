@@ -62,7 +62,7 @@ export function GrantAccessDialog({
   defaultPlanId: string;
   baseDomain: string;
   onClose: () => void;
-  /** `recreate`: the user's previous workspace is deleted; provisions a fresh one. */
+  /** `recreate`: the user's previous workspace is deleted; lets the user create a new one. */
   mode?: "grant" | "recreate";
 }) {
   const router = useRouter();
@@ -84,8 +84,8 @@ export function GrantAccessDialog({
           </DialogTitle>
           <DialogDescription>
             {recreate
-              ? "Provisions a fresh workspace on a new slot after the old one was deleted. Old files are gone. An existing subscription and trial are kept."
-              : "Gives the user access, assigns the plan and provisions their workspace."}
+              ? "Lets the user create a new workspace after the old one was deleted. They go through setup again; an existing subscription and trial are kept."
+              : "Gives the user access and assigns the plan. They create their own workspace in the setup steps after signing in."}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>

@@ -109,6 +109,9 @@ export function createTenant(req: CreateTenantRequest): Promise<void> {
       await run("passwd", ["-l", user]);
     }
     await ensureSubids(ws, start);
+    // A kept home (delete with keepData) already exists: `useradd --create-home` leaves it alone, so
+    // hand the directory itself back to the account (contents keep the uid; slot and uid are reused).
+    if (!existing) await run("chown", [`${uid}:${uid}`, home]);
     await chmod(home, 0o700);
 
     await writeDropins(ws, uid, req.limits);
@@ -144,7 +147,12 @@ export function updateLimits(ws: string, req: UpdateLimitsRequest): Promise<void
   });
 }
 
-export function deleteTenant(ws: string): Promise<void> {
+/**
+ * Remove the tenant's container, quota, subids and host account. `keepData` leaves the tenant home
+ * (`/workspace`: dotfiles, tool and agent config, projects) in place; `createTenant` for the same
+ * slug and slot adopts it again.
+ */
+export function deleteTenant(ws: string, opts: { keepData?: boolean } = {}): Promise<void> {
   return withLock(ws, async () => {
     const t0 = Date.now();
     const user = tenantUser(ws);
@@ -186,8 +194,12 @@ export function deleteTenant(ws: string): Promise<void> {
       }
     }
     registry.delete(ws);
-    await run("rm", ["-rf", "--one-file-system", "--", tenantHome(ws)]);
+    if (!opts.keepData) await run("rm", ["-rf", "--one-file-system", "--", tenantHome(ws)]);
     await run("systemctl", ["daemon-reload"]);
-    logEvent({ ws, event: "tenant_deleted", durationMs: Date.now() - t0 });
+    logEvent({
+      ws,
+      event: opts.keepData ? "tenant_deleted_kept_data" : "tenant_deleted",
+      durationMs: Date.now() - t0,
+    });
   });
 }

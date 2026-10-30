@@ -17,3 +17,11 @@ export const CONTAINER_UP_STATUSES = ["running", "starting", "stopping"] as cons
 
 /** Workspaces that are gone or going away never block image changes. */
 export const WORKSPACE_GONE_STATUSES = ["deleting", "deleted"] as const;
+
+/** Highest build number (3-digit tag). */
+export const MAX_IMAGE_VERSION = 999;
+
+/** Build number as shown and tagged: `7` -> `007`. */
+export function formatImageVersion(version: number): string {
+  return String(version).padStart(3, "0");
+}

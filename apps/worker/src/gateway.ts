@@ -1,5 +1,5 @@
 import http from "node:http";
-import { and, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import {
   decrypt,
   hashToken,
@@ -182,6 +182,8 @@ export function createGateway(ctx: Ctx): http.RequestListener {
           eq(workspaces.slug, ws),
           ne(workspaces.status, "deleted"),
           eq(user.accessStatus, "active"),
+          // Users who have not finished onboarding cannot use T3 Code or VS Code yet.
+          or(isNotNull(user.onboardedAt), eq(user.role, "admin")),
         ),
       )
       .limit(1);
@@ -371,11 +373,23 @@ export function createGateway(ctx: Ctx): http.RequestListener {
     if (!claimed) return invalid();
 
     const [row] = await db
-      .select({ slug: workspaces.slug, status: workspaces.status, access: user.accessStatus })
+      .select({
+        slug: workspaces.slug,
+        status: workspaces.status,
+        access: user.accessStatus,
+        onboardedAt: user.onboardedAt,
+        role: user.role,
+      })
       .from(workspaces)
       .innerJoin(user, eq(user.id, claimed.userId))
       .where(eq(workspaces.id, claimed.workspaceId));
-    if (!row || row.slug !== target.ws || row.status === "deleted" || row.access !== "active") {
+    if (
+      !row ||
+      row.slug !== target.ws ||
+      row.status === "deleted" ||
+      row.access !== "active" ||
+      (!row.onboardedAt && row.role !== "admin")
+    ) {
       return invalid();
     }
 

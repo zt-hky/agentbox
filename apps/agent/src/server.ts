@@ -5,6 +5,8 @@ import { toolchainApplyRequestSchema, toolchainRunQuerySchema } from "@agentbox/
 import {
   buildImageRequestSchema,
   createTenantRequestSchema,
+  agentKeysRequestSchema,
+  deleteTenantQuerySchema,
   githubConnectRequestSchema,
   imageParamsSchema,
   jobParamsSchema,
@@ -35,6 +37,7 @@ import {
   copilotLoginStateOp,
   copilotLogoutOp,
   copilotProviderOp,
+  agentKeysOp,
   githubConnect,
   githubDisconnect,
   startWorkspace,
@@ -90,7 +93,11 @@ export const routes: Route[] = [
     method: "DELETE",
     pattern: /^\/v1\/tenants\/([^/]+)$/,
     handler: async (c) => {
-      await deleteTenant(parse(wsParamsSchema, { ws: c.params["0"] }).ws);
+      const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
+      const { keepData } = parse(deleteTenantQuerySchema, {
+        keepData: c.query.get("keepData") ?? undefined,
+      });
+      await deleteTenant(ws, { keepData });
       return OK;
     },
   },
@@ -116,6 +123,15 @@ export const routes: Route[] = [
     handler: async (c) => {
       const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
       await githubConnect(ws, parse(githubConnectRequestSchema, await c.body()));
+      return OK;
+    },
+  },
+  {
+    method: "PUT",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/agent-keys$/,
+    handler: async (c) => {
+      const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
+      await agentKeysOp(ws, parse(agentKeysRequestSchema, await c.body()));
       return OK;
     },
   },

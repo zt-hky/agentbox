@@ -63,6 +63,20 @@ describe("decideHandoff", () => {
     ).toMatchObject({ action: "issue" });
   });
 
+  it("refuses the owner until onboarding is finished; admins on others' workspaces are unaffected", () => {
+    const notOnboarded = { ...alice, onboardedAt: null };
+    expect(decideHandoff({ baseDomain, host, user: notOnboarded, workspace: ws })).toMatchObject({
+      action: "deny",
+      status: 403,
+    });
+    expect(
+      decideHandoff({ baseDomain, host, user: { ...alice, onboardedAt: new Date() }, workspace: ws }),
+    ).toMatchObject({ action: "issue" });
+    expect(
+      decideHandoff({ baseDomain, host, user: { ...admin, onboardedAt: null }, workspace: ws }),
+    ).toMatchObject({ action: "confirm" });
+  });
+
   it("requires confirmation for an admin opening someone else's workspace", () => {
     expect(decideHandoff({ baseDomain, host, user: admin, workspace: ws })).toEqual({
       action: "confirm",

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { AdminSleepButton } from "../admin-sleep-button";
+import { AdminDeleteWorkspaceDialog } from "./admin-delete-dialog";
 import { ApproveUserButton } from "@/app/admin/users/[id]/user-controls";
 import type { PlanOption } from "@/components/grant-access-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -22,7 +23,6 @@ import {
 import { shortImageId, type ImageOption, type WorkspaceImageState } from "@/lib/admin/image-view";
 import type { ActionResult } from "@/lib/action";
 import {
-  adminDeleteWorkspace,
   adminResetStartFailures,
   adminRestartWorkspace,
   adminSetWorkspaceImage,
@@ -163,6 +163,7 @@ export function ManagePanel({
   startFailures,
   ownerId,
   ownerEmail,
+  ownerIsAdmin,
   planName,
   recreate,
   image,
@@ -172,6 +173,7 @@ export function ManagePanel({
   startFailures: number;
   ownerId: string;
   ownerEmail: string;
+  ownerIsAdmin: boolean;
   planName: string | null;
   /** Set for a `deleted` workspace: the owner can get a fresh one. */
   recreate: {
@@ -276,22 +278,13 @@ export function ManagePanel({
       </Row>
       <Row
         title="Delete workspace"
-        description={
-          "Destroys the container, the Linux account and all workspace data. Non-admin owners are suspended; an admin keeps console access. This cannot be undone."
-        }
+        description="Removes the container and Linux account. Choose whether to keep or wipe the data, and whether the owner onboards again or is suspended. Admins are never suspended."
       >
-        <ConfirmDialog
-          trigger={
-            <Button size="sm" variant="destructive" disabled={pending || gone}>
-              Delete
-            </Button>
-          }
-          title={`Delete ${slug}?`}
-          description="The container, Linux account and all workspace data are destroyed. A non-admin owner is suspended."
-          confirmLabel="Delete workspace"
-          destructive
-          confirmText={slug}
-          onConfirm={() => confirmed(() => adminDeleteWorkspace(slug, slug))}
+        <AdminDeleteWorkspaceDialog
+          slug={slug}
+          ownerEmail={ownerEmail}
+          ownerIsAdmin={ownerIsAdmin}
+          disabled={pending || gone}
         />
       </Row>
       {recreate ? (

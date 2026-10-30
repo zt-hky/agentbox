@@ -6,6 +6,9 @@ import { UserError } from "../lib/errors";
 import { cancelJob, listJobs, retryJob } from "../lib/admin/system-jobs";
 import { createTestDb, seedAdmin, seedUser, type TestDb } from "./helpers/db";
 
+let imageVersionCounter = 0;
+const nextImageVersion = () => ++imageVersionCounter;
+
 let t: TestDb;
 let adminId: string;
 let wsId: string;
@@ -173,7 +176,7 @@ describe("cancelJob", () => {
   it("fails the building image row when a queued build is cancelled", async () => {
     const [img] = await t.db
       .insert(images)
-      .values({ t3Ref: "main", status: "building" })
+      .values({ version: nextImageVersion(), t3Ref: "main", status: "building" })
       .returning();
     const j = await addJob({
       type: "build_image",

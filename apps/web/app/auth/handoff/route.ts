@@ -15,7 +15,10 @@ export async function GET(request: Request): Promise<Response> {
   const host = url.searchParams.get("host");
   const path = sanitizeReturnPath(url.searchParams.get("path"));
 
-  const { decision, workspace } = await decideForRequest(host, session.user);
+  const { decision, workspace } = await decideForRequest(host, {
+    ...session.user,
+    onboardedAt: session.user.onboardedAt ?? null,
+  });
   if (decision.action === "deny") {
     return new Response(decision.reason, {
       status: decision.status,

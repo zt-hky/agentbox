@@ -185,7 +185,8 @@ uninstall_version() { timeout --foreground -k 5 120 mise uninstall "$1@$2" >/dev
 # locate_bin <install-dir> <file-name> -> path of the executable (empty when absent)
 locate_bin() {
   local d=$1 f=$2 c
-  for c in "$d/$f" "$d/bin/$f" "$d/node_modules/.bin/$f" "$d/$f/$f"; do
+  # `$d/*/...` covers archives that unpack into one versioned directory (uv, maven, gradle).
+  for c in "$d/$f" "$d/bin/$f" "$d/node_modules/.bin/$f" "$d/$f/$f" "$d"/*/"$f" "$d"/*/bin/"$f"; do
     if [ -f "$c" ] && [ -x "$c" ]; then
       printf '%s' "$c"
       return 0

@@ -1,9 +1,11 @@
 # Per-workspace toolchain
 
-Runtimes (Node, Bun, Python) and agent CLIs (Claude Code, Codex, Oh My Pi, Pi, OpenCode, Grok, Muse,
+Runtimes (Node, Bun, Python, Rust, Go, Java) and agent CLIs (Claude Code, Codex, Oh My Pi, Pi, OpenCode, Grok, Muse,
 GitHub Copilot CLI) are installed per workspace under `/workspace/home`, not baked into the shared
-image. The image keeps only what every workspace needs to boot: apt tools, git, `gh`, `uv`, `mise`,
-code-server, the T3 server, the resource monitor and `workspace-init`.
+image. The image is always slim: it keeps only what every workspace needs to boot (apt tools, git,
+`gh`, `uv`, `mise`, code-server, the T3 server, the resource monitor and `workspace-init`) and bakes
+no Node, agent CLI or other language runtime. See [`images.md`](images.md) for how images are built
+and numbered, and [`onboarding.md`](onboarding.md) for how users pick their tools.
 
 Evidence that every backend below installs as uid 1000 in a rootless container, with PATH, upgrade,
 rollback, failure and removal behaviour: [`toolchain-spike.md`](toolchain-spike.md).
@@ -28,12 +30,24 @@ sees a newly installed CLI without a restart and T3 never needs a `binaryPath`. 
 `packages/core/src/toolchain/catalog.ts` is the single source of truth: explicit mise backend strings
 tried in order (no registry shorthands), bins, version command, version source, channels.
 
-- Default for every tool is `latest`; Node's default channel is `lts`.
-- Node and Python also offer older `major.minor` lines. A line resolves to the newest patch published
+- Default for every tool is `latest`; Node's and Java's default channel is `lts`.
+- Package managers are catalog entries of kind `package-manager` with a `requires` language: pnpm
+  (`aqua:pnpm/pnpm`, then `npm:pnpm`) and Yarn 4 (`aqua:yarnpkg/berry`, then `npm:@yarnpkg/cli-dist`) on
+  Node, uv (`aqua:astral-sh/uv`) and Poetry (`pypi:poetry`, installed by uv) on Python, Maven
+  (`aqua:apache/maven`) and Gradle (`aqua:gradle/gradle-distributions`) on Java. They go through the
+  same plan/apply/remove/upgrade path, are ordered after the runtimes, are skipped while their language
+  is not wanted, and the Tools page and server refuse to install one without its language. Their versions
+  come from the npm registry, GitHub releases (uv, Gradle), PyPI and Maven Central metadata. npm, pip,
+  Cargo and Go modules ship with their language and are not catalog tools.
+- Rust (`rust`), Go (`go`) and Java (`java`, OpenJDK) install through their mise core backends. Their
+  versions come from GitHub releases (`rust-lang/rust`), `go.dev/dl` and the Adoptium API (Java
+  versions below 17 are not offered; Java's LTS channel is the newest LTS release).
+- Node, Python, Rust, Go and Java also offer older `major.minor` lines. A line resolves to the newest patch published
   in it. The server rejects any other pin for those tools. Bun and agent CLIs pin an exact version
   from the recent published list.
 - Versions are resolved centrally by the worker (`tool_latest`, refreshed hourly from nodejs.org, the
-  mise python list, the npm registry and Muse's channel manifest), so tenants sharing one egress IP
+  mise python list, go.dev, the Adoptium API, GitHub releases for Rust, the npm registry and Muse's
+  channel manifest), so tenants sharing one egress IP
   never spend GitHub's anonymous API quota. The agent always installs an exact version.
 - Reconcile never upgrades by itself. Installing missing tools, applying a pin change and removing a
   tool switched off are automatic; moving a `latest`/`lts` tool to a newer release needs an Upgrade.
@@ -63,10 +77,10 @@ host (507 when the tenant has under 700 MB free). Error codes: `quota`, `version
 
 ## Images, manifest and the slim gate
 
-`/opt/agentbox/versions.json` gains `mise`, `toolchainAbi`, `envVersion`, `slim`. After a build the
-agent reads it from the exported rootfs and the worker stores it in `images.manifest`.
-`--build-arg SLIM=1` (the Slim checkbox on the admin build form) skips the baked Node, Codex, Claude
-Code and Oh My Pi layers.
+`/opt/agentbox/versions.json` carries `mise`, `toolchainAbi`, `envVersion` and `slim` (always `true`
+for images built now). After a build the agent reads it from the exported rootfs and the worker stores
+it in `images.manifest`. Images built before slim-only builds may still bake Node, Codex, Claude Code
+and Oh My Pi; the gate below keeps workspaces from moving off them before their toolchain is ready.
 
 `evaluateImageGate` (`packages/core/src/toolchain/gate.ts`) is enforced by activate, pin, follow and
 bulk move in `apps/web/lib/admin/images-ops.ts`:
@@ -81,12 +95,12 @@ The UI lists the blocking workspaces with reasons and a Reconcile now button.
 ## Rolling out to existing workspaces
 
 1. Deploy control plane (`infra/cp/deploy.sh`; copy `deploy.sh` first if it changed), agent rebuild and
-   `infra/host/provision.sh` so the new agent routes exist. Migrations 0008 and 0009 run on worker boot.
-2. Build a normal (non-slim) image with the new Containerfile and activate it. It still bakes Node,
-   Codex, Claude and omp, so nothing regresses; existing tools show as "from image".
+   `infra/host/provision.sh` so the new agent routes exist. Migrations run on worker boot.
+2. Build a slim image (docs/images.md) and keep the old image active for now. Existing tools show as
+   "from image" until a managed copy replaces them.
 3. `/admin/tools`: Check for updates, then Reconcile all. Sleeping workspaces are started to apply
    (billed as normal awake time); tick "running workspaces only" to avoid that.
-4. Build a slim image (`Slim` checked). Activation is blocked until every follower passes the gate.
+4. Activation of the new image is blocked until every follower passes the gate.
 5. Activate it. Workspaces carry their own toolchain from then on.
 
 Workspaces whose seeded `~/.bashrc` still prepends `~/.local/bin` keep that ahead of the farm; the

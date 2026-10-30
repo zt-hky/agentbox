@@ -12,6 +12,7 @@ import { writeAudit } from "@/lib/audit";
 import { UserError } from "@/lib/errors";
 import {
   activateImageWithMove,
+  allocateImage,
   bulkMoveWorkspaces,
   requestImageDelete,
   requestWorkspaceReconciles,
@@ -22,12 +23,11 @@ import { t3RefSchema } from "@/lib/schemas";
 
 const idSchema = z.uuid();
 
-export async function buildImage(t3Ref: string, slim = false) {
+export async function buildImage(t3Ref: string) {
   return guard(async () => {
     const { admin, ip } = await adminContext();
     const parsed = t3RefSchema.safeParse(t3Ref);
     if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Invalid ref");
-    const isSlim = z.boolean().parse(slim);
     await db.transaction(async (tx) => {
       const building = await tx
         .select({ id: images.id })
@@ -35,17 +35,17 @@ export async function buildImage(t3Ref: string, slim = false) {
         .where(eq(images.status, "building"))
         .limit(1);
       if (building.length > 0) throw new UserError("An image build is already running");
-      const inserted = await tx
-        .insert(images)
-        .values({ t3Ref: parsed.data, status: "building", createdBy: admin.id })
-        .returning({ id: images.id });
-      const imageRowId = inserted[0]!.id;
+      const inserted = await allocateImage(tx, {
+        t3Ref: parsed.data,
+        createdBy: admin.id,
+      });
+      const imageRowId = inserted.id;
       await tx
         .insert(jobs)
         .values({
           type: "build_image",
           workspaceId: null,
-          payload: { imageRowId, t3Ref: parsed.data, ...(isSlim ? { slim: true } : {}) },
+          payload: { imageRowId, t3Ref: parsed.data },
         })
         .onConflictDoNothing();
       await writeAudit(tx, {
@@ -53,7 +53,7 @@ export async function buildImage(t3Ref: string, slim = false) {
         action: "image.build",
         targetType: "image",
         targetId: imageRowId,
-        metadata: { t3Ref: parsed.data, slim: isSlim },
+        metadata: { t3Ref: parsed.data, version: inserted.version },
         ip,
       });
     });

@@ -137,6 +137,12 @@ export function buildPlan(input: PlanInput): Plan {
       continue;
     }
 
+    const language = entry.requires ? desired.get(entry.requires) : undefined;
+    if (entry.requires && want.desired && !language?.desired) {
+      skipped.push({ tool: id, reason: `requires ${requireEntry(entry.requires).label}` });
+      continue;
+    }
+
     const target = resolveTarget(entry, want.channel, want.pinnedVersion, input.latest[id]);
     if (!target.ok) {
       if (managed) skipped.push({ tool: id, reason: target.reason });
@@ -172,7 +178,8 @@ export function buildPlan(input: PlanInput): Plan {
 
   // Tools no longer in the catalog's desired set but still managed are handled by the caller
   // (removal rows keep `desired=false`), so nothing else is planned here.
-  const rank = new Map(CATALOG.map((e, i) => [e.id, (e.kind === "runtime" ? 0 : 1000) + i]));
+  const kindRank = { runtime: 0, "package-manager": 500, agent: 1000 } as const;
+  const rank = new Map(CATALOG.map((e, i) => [e.id, kindRank[e.kind] + i]));
   steps.sort((a, b) => (rank.get(a.tool) ?? 0) - (rank.get(b.tool) ?? 0));
   return { steps, skipped, errors };
 }

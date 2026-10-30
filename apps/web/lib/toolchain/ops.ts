@@ -151,6 +151,14 @@ async function enqueue(
   return res;
 }
 
+/** A package manager installs only on top of a language the workspace wants. */
+function assertLanguageWanted(row: ToolRowView, entry: CatalogEntry): void {
+  if (row.installBlockedReason && !row.desired) {
+    const language = entry.requires ? requireEntry(entry.requires).label : "its language";
+    throw new UserError(`${entry.label} needs ${language}. ${row.installBlockedReason}.`);
+  }
+}
+
 /** Install a tool (or its managed copy when the image ships one), optionally choosing the channel. */
 export async function installTool(
   database: Db,
@@ -158,6 +166,7 @@ export async function installTool(
   input: { toolId: ToolId; selection?: ToolSelection },
 ) {
   const { ws, row, entry } = await requireTool(database, actor.userId, input.toolId);
+  assertLanguageWanted(row, entry);
   if (row.managed && row.desired) throw new UserError(`${entry.label} is already installed`);
   const chosen = input.selection
     ? validateSelection(entry, input.selection, (await loadLatestMap(database)).get(entry.id))
@@ -198,6 +207,7 @@ export async function selectToolVersion(
   input: { toolId: ToolId; selection: ToolSelection },
 ) {
   const { ws, row, entry } = await requireTool(database, actor.userId, input.toolId);
+  assertLanguageWanted(row, entry);
   const chosen = validateSelection(
     entry,
     input.selection,

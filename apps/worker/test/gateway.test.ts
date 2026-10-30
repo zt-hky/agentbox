@@ -129,6 +129,21 @@ describe("authorize: routing and unauthenticated", () => {
     expect((await get("/internal/authorize", { host: T3, cookie: ok.cookie })).status).toBe(401);
   });
 
+  it("refuses users who have not finished onboarding, until they do; admins are exempt", async () => {
+    const w = await seedWorld(t.db, { onboarded: false });
+    const s = await session(w, T3);
+    expect((await get("/internal/authorize", { host: T3, cookie: s.cookie })).status).toBe(401);
+    await t.db.update(user).set({ onboardedAt: clock.now() }).where(eq(user.id, w.userId));
+    expect((await get("/internal/authorize", { host: T3, cookie: s.cookie })).status).toBe(200);
+
+    const admin = await seedWorld(t.db, { slug: "boss", slot: 2, onboarded: false });
+    await t.db.update(user).set({ role: "admin" }).where(eq(user.id, admin.userId));
+    const a = await session(admin, `boss-t3.${D}`);
+    expect(
+      (await get("/internal/authorize", { host: `boss-t3.${D}`, cookie: a.cookie })).status,
+    ).toBe(200);
+  });
+
   it("revocation takes effect after the 30 s cache window, not before", async () => {
     const w = await seedWorld(t.db);
     const s = await session(w, T3);

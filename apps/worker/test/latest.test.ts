@@ -39,6 +39,27 @@ function fakeFetch(state: { fail: boolean; calls: string[] }): FetchLike {
         { version: "v24.22.2", lts: "Krypton" },
       ]);
     if (url.includes("mise-versions")) return res("3.12.16\n3.13.1\n");
+    if (url.includes("go.dev/dl"))
+      return res([
+        { version: "go1.24.1", stable: true },
+        { version: "go1.25rc1", stable: false },
+      ]);
+    if (url.includes("api.adoptium.net"))
+      return res({
+        versions: [
+          { major: 26, minor: 0, security: 1, openjdk_version: "26.0.1+9" },
+          { major: 25, minor: 0, security: 2, openjdk_version: "25.0.2+10-LTS" },
+          { major: 21, minor: 0, security: 9, openjdk_version: "21.0.9+10-LTS" },
+        ],
+      });
+    if (url.includes("api.github.com/repos/"))
+      return res([
+        { tag_name: "1.91.0", prerelease: false },
+        { tag_name: "1.90.0", prerelease: false },
+      ]);
+    if (url.includes("pypi.org/pypi/")) return res({ releases: { "2.2.1": [{}], "2.1.4": [{}] } });
+    if (url.includes("repo1.maven.org"))
+      return res("<versions><version>3.9.10</version><version>3.9.11</version></versions>");
     if (url.includes("registry.npmjs.org"))
       return res({ "dist-tags": { latest: "1.1.0" }, versions: { "1.0.0": {}, "1.1.0": {} } });
     if (url.includes("muse-code/channels"))
@@ -108,9 +129,16 @@ describe("refreshToolLatest", () => {
     expect(failed).toEqual([]);
     expect(await row("node")).toMatchObject({ latest: "26.13.0", lts: "24.22.2", error: null });
     expect(await row("python")).toMatchObject({ latest: "3.13.1" });
+    expect(await row("go")).toMatchObject({ latest: "1.24.1", versions: ["1.24.1"] });
+    expect(await row("rust")).toMatchObject({ latest: "1.91.0", versions: ["1.91.0", "1.90.0"] });
+    expect(await row("java")).toMatchObject({ latest: "26.0.1", lts: "25.0.2" });
     expect(await row("bun")).toMatchObject({ latest: "1.1.0", versions: ["1.1.0", "1.0.0"] });
     expect(await row("muse")).toMatchObject({ latest: "1.4.14" });
     expect((await row("muse"))!.meta).toMatchObject({ url: "https://m.test/muse" });
+    expect(await row("poetry")).toMatchObject({ latest: "2.2.1", versions: ["2.2.1", "2.1.4"] });
+    expect(await row("maven")).toMatchObject({ latest: "3.9.11", versions: ["3.9.11", "3.9.10"] });
+    expect(await row("uv")).toMatchObject({ latest: "1.91.0" });
+    expect(await row("pnpm")).toMatchObject({ latest: "1.1.0" });
   });
 
   it("refreshes only the requested tools and keeps old data on failure", async () => {

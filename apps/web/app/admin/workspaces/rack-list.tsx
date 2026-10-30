@@ -69,7 +69,7 @@ export function RackList({ rows, now }: { rows: RackRow[]; now: string }) {
     return (
       <EmptyState
         title="No workspaces yet"
-        description="Approve an access request and the workspace is created with it."
+        description="Approve an access request; the user creates the workspace in setup."
         action={
           <Button asChild variant="outline" size="sm">
             <Link href="/admin/requests">Open access requests</Link>

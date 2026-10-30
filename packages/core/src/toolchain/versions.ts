@@ -148,6 +148,58 @@ export function parsePythonList(text: string): LatestInfo {
   return { latest: versions[0] ?? null, lts: null, versions };
 }
 
+const goDlSchema = z.array(z.object({ version: z.string(), stable: z.boolean() }).loose());
+
+/** go.dev/dl JSON: `go1.23.4` entries flagged stable; releases without a patch (`go1.22`) are dropped. */
+export function parseGoDl(json: unknown): LatestInfo {
+  const rows = goDlSchema.parse(json);
+  const versions = sortStable(
+    rows.filter((r) => r.stable).map((r) => r.version.replace(/^go/, "")),
+  );
+  return { latest: versions[0] ?? null, lts: null, versions };
+}
+
+const githubReleasesSchema = z.array(
+  z.object({ tag_name: z.string(), prerelease: z.boolean().optional() }).loose(),
+);
+
+/** GitHub releases list: stable `1.2.3` tags (an optional leading `v` is stripped). */
+export function parseGithubReleases(json: unknown): LatestInfo {
+  const rows = githubReleasesSchema.parse(json);
+  const versions = sortStable(
+    rows.filter((r) => !r.prerelease).map((r) => r.tag_name.replace(/^v/, "")),
+  );
+  return { latest: versions[0] ?? null, lts: null, versions };
+}
+
+const adoptiumSchema = z.object({
+  versions: z.array(
+    z
+      .object({
+        major: z.number(),
+        minor: z.number(),
+        security: z.number(),
+        openjdk_version: z.string().optional(),
+        semver: z.string().optional(),
+      })
+      .loose(),
+  ),
+});
+
+/** Java versions never older than this major are offered (older ones lack the unified `--version`). */
+const JAVA_MIN_MAJOR = 17;
+
+/** Adoptium GA release list: `major.minor.security`; `lts` is the newest release of an LTS major. */
+export function parseAdoptium(json: unknown): LatestInfo {
+  const { versions: rows } = adoptiumSchema.parse(json);
+  const kept = rows.filter((r) => r.major >= JAVA_MIN_MAJOR);
+  const name = (r: (typeof kept)[number]) => `${r.major}.${r.minor}.${r.security}`;
+  const versions = sortStable(kept.map(name));
+  const ltsRows = kept.filter((r) => /LTS/i.test(`${r.openjdk_version ?? ""}${r.semver ?? ""}`));
+  const lts = sortStable(ltsRows.map(name))[0] ?? null;
+  return { latest: versions[0] ?? null, lts, versions };
+}
+
 const packumentSchema = z.object({
   "dist-tags": z.record(z.string(), z.string()).optional(),
   versions: z.record(z.string(), z.unknown()),
@@ -160,6 +212,27 @@ export function parseNpmPackument(json: unknown): LatestInfo {
   const tagged = p["dist-tags"]?.["latest"];
   const latest = tagged && isStableVersion(tagged) ? tagged : (versions[0] ?? null);
   return { latest, lts: null, versions };
+}
+
+const pypiSchema = z.object({
+  releases: z.record(z.string(), z.array(z.object({ yanked: z.boolean().optional() }).loose())),
+});
+
+/** PyPI JSON API: stable releases that still have at least one non-yanked file. */
+export function parsePypi(json: unknown): LatestInfo {
+  const p = pypiSchema.parse(json);
+  const live = Object.entries(p.releases)
+    .filter(([, files]) => files.some((f) => !f.yanked))
+    .map(([v]) => v);
+  const versions = sortStable(live);
+  return { latest: versions[0] ?? null, lts: null, versions };
+}
+
+/** `maven-metadata.xml`: every `<version>` entry, stable ones only (RCs and milestones dropped). */
+export function parseMavenMetadata(xml: string): LatestInfo {
+  const all = [...xml.matchAll(/<version>\s*([^<\s]+)\s*<\/version>/g)].map((m) => m[1] as string);
+  const versions = sortStable(all);
+  return { latest: versions[0] ?? null, lts: null, versions };
 }
 
 const museChannelSchema = z.object({
