@@ -12,10 +12,20 @@ start (`workspaces.github_sync_pending`).
 - Connect (`sync_github`): `gh auth login --with-token`, `gh auth setup-git`, git identity if unset.
 - Disconnect (`disconnectGithubAccount`, one transaction): deletes the row, queues `sync_github`,
   marks a Copilot sign-in made from the page for sign-out (or cancels a live one), audits
-  `github.disconnected`; the action then revokes the grant at GitHub. The agent's
+  `github.disconnected`; the action then revokes at GitHub (dedicated app: the whole grant; shared
+  app: only the connect token, see below). The agent's
   `DELETE /v1/workspaces/:ws/github` runs `gh auth logout` and removes the
   `credential.https://github.com` and `credential.https://gist.github.com` sections `gh auth
 setup-git` wrote, but only when every helper in the section is gh's.
+- OAuth app selection (`githubConnectConfig`): `GITHUB_CONNECT_CLIENT_ID`/`_SECRET` (dedicated app,
+  callback `/api/github/callback`) win; otherwise the sign-in app `GITHUB_CLIENT_ID`/`_SECRET` is
+  reused with callback `/api/auth/callback/github/connect` (GitHub accepts a redirect_uri that is a
+  subdirectory of the registered `/api/auth/callback/github`; no app change needed). Neither set:
+  the page shows "Not available". The static connect route beats better-auth's
+  `app/api/auth/[...all]` catch-all. A shared app may request the extra scopes; sign-in itself still
+  asks only `read:user user:email`. Because that grant is also the user's sign-in authorization,
+  Disconnect on a shared app revokes only the token
+  (`DELETE /applications/{client_id}/token`), never `/grant`.
 
 ## Copilot (CLI + T3 provider)
 

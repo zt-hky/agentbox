@@ -14,7 +14,7 @@ import {
 import { guard } from "@/lib/action";
 import { clientIpFrom } from "@/lib/audit";
 import { encryptionKey, githubConnectConfig } from "@/lib/env";
-import { revokeGrant } from "@/lib/github";
+import { revokeConnection } from "@/lib/github";
 import { requireActiveUser } from "@/lib/session";
 
 export async function disconnectGithub() {
@@ -29,9 +29,9 @@ export async function disconnectGithub() {
     const cfg = githubConnectConfig();
     if (cfg) {
       try {
-        await revokeGrant(cfg, decrypt(conn.tokenEnc, encryptionKey()));
+        await revokeConnection(cfg, decrypt(conn.tokenEnc, encryptionKey()));
       } catch (e) {
-        console.error("github grant revoke failed", e);
+        console.error("github revoke failed", e);
       }
     }
     revalidatePath("/settings/github");

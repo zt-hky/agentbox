@@ -1,22 +1,26 @@
 import { githubScopeString } from "@agentbox/core/accounts";
 import { timingSafeEqual } from "node:crypto";
-import { appOrigin } from "./env";
+import { appOrigin, type GithubConnectConfig } from "./env";
 
 export const GH_STATE_COOKIE = "__Host-abx_gh_state";
 export const GH_STATE_MAX_AGE_S = 600;
 export const WORKFLOW_PARAM = "workflow";
 
-export function callbackUrl(): string {
-  return `${appOrigin()}/api/github/callback`;
+export function callbackUrl(cfg: Pick<GithubConnectConfig, "callbackPath">): string {
+  return `${appOrigin()}${cfg.callbackPath}`;
 }
 
 /** `allowWorkflow` is the opt-in for editing workflow files; everything else is the minimum for git + gh. */
-export function authorizeUrl(clientId: string, state: string, allowWorkflow = false): string {
+export function authorizeUrl(
+  cfg: Pick<GithubConnectConfig, "clientId" | "callbackPath">,
+  state: string,
+  allowWorkflow = false,
+): string {
   const u = new URL("https://github.com/login/oauth/authorize");
-  u.searchParams.set("client_id", clientId);
+  u.searchParams.set("client_id", cfg.clientId);
   u.searchParams.set("scope", githubScopeString(allowWorkflow));
   u.searchParams.set("state", state);
-  u.searchParams.set("redirect_uri", callbackUrl());
+  u.searchParams.set("redirect_uri", callbackUrl(cfg));
   return u.toString();
 }
 
@@ -51,7 +55,7 @@ export function redirectResponse(location: string, cookies: string[] = []): Resp
 const TIMEOUT_MS = 10_000;
 
 export async function exchangeCode(
-  cfg: { clientId: string; clientSecret: string },
+  cfg: Pick<GithubConnectConfig, "clientId" | "clientSecret" | "callbackPath">,
   code: string,
 ): Promise<{ accessToken: string; scope: string }> {
   const res = await fetch("https://github.com/login/oauth/access_token", {
@@ -61,7 +65,7 @@ export async function exchangeCode(
       client_id: cfg.clientId,
       client_secret: cfg.clientSecret,
       code,
-      redirect_uri: callbackUrl(),
+      redirect_uri: callbackUrl(cfg),
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
@@ -86,21 +90,36 @@ export async function fetchGithubUser(token: string): Promise<{ id: number; logi
   return { id: body.id, login: body.login };
 }
 
-/** Revoke the OAuth grant. Best effort: callers ignore failures. */
-export async function revokeGrant(
-  cfg: { clientId: string; clientSecret: string },
+function basicAuth(cfg: Pick<GithubConnectConfig, "clientId" | "clientSecret">): string {
+  return Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
+}
+
+async function deleteApplication(
+  cfg: Pick<GithubConnectConfig, "clientId" | "clientSecret">,
+  kind: "grant" | "token",
   token: string,
 ): Promise<void> {
-  const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
-  await fetch(`https://api.github.com/applications/${encodeURIComponent(cfg.clientId)}/grant`, {
+  await fetch(`https://api.github.com/applications/${encodeURIComponent(cfg.clientId)}/${kind}`, {
     method: "DELETE",
     headers: {
       Accept: "application/vnd.github+json",
-      Authorization: `Basic ${basic}`,
+      Authorization: `Basic ${basicAuth(cfg)}`,
       "Content-Type": "application/json",
       "User-Agent": "agentbox",
     },
     body: JSON.stringify({ access_token: token }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
+}
+
+/**
+ * Revoke what Connect handed out. A dedicated app owns the whole grant, so it is removed. A shared
+ * app's grant is also the user's sign-in authorization, so only this token is revoked.
+ * Best effort: callers ignore failures.
+ */
+export async function revokeConnection(
+  cfg: Pick<GithubConnectConfig, "clientId" | "clientSecret" | "shared">,
+  token: string,
+): Promise<void> {
+  await deleteApplication(cfg, cfg.shared ? "token" : "grant", token);
 }

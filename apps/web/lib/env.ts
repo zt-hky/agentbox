@@ -34,8 +34,40 @@ export function configuredProviders(): LoginProvider[] {
   return out;
 }
 
-export function githubConnectConfig(): { clientId: string; clientSecret: string } | null {
-  const clientId = process.env.GITHUB_CONNECT_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_CONNECT_CLIENT_SECRET;
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
+export type GithubConnectConfig = {
+  clientId: string;
+  clientSecret: string;
+  /** Path (under the app origin) registered/accepted as the OAuth redirect URI. */
+  callbackPath: string;
+  /** True when the sign-in OAuth App is reused; its grant also carries the user's sign-in. */
+  shared: boolean;
+};
+
+export const GITHUB_CONNECT_CALLBACK_PATH = "/api/github/callback";
+/** A subdirectory of the sign-in app's registered callback (`/api/auth/callback/github`). */
+export const GITHUB_SHARED_CALLBACK_PATH = "/api/auth/callback/github/connect";
+
+/** Dedicated `GITHUB_CONNECT_*` app wins; else reuse the sign-in `GITHUB_CLIENT_*` app. */
+export function githubConnectConfig(): GithubConnectConfig | null {
+  const id = process.env.GITHUB_CONNECT_CLIENT_ID;
+  const secret = process.env.GITHUB_CONNECT_CLIENT_SECRET;
+  if (id && secret) {
+    return {
+      clientId: id,
+      clientSecret: secret,
+      callbackPath: GITHUB_CONNECT_CALLBACK_PATH,
+      shared: false,
+    };
+  }
+  const sharedId = process.env.GITHUB_CLIENT_ID;
+  const sharedSecret = process.env.GITHUB_CLIENT_SECRET;
+  if (sharedId && sharedSecret) {
+    return {
+      clientId: sharedId,
+      clientSecret: sharedSecret,
+      callbackPath: GITHUB_SHARED_CALLBACK_PATH,
+      shared: true,
+    };
+  }
+  return null;
 }

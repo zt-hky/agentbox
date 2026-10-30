@@ -12,5 +12,5 @@ export async function GET(request: Request): Promise<Response> {
   // `?workflow=1` is the explicit opt-in for the `workflow` scope (re-consent on an existing link).
   const allowWorkflow = new URL(request.url).searchParams.get(WORKFLOW_PARAM) === "1";
   const state = randomToken();
-  return redirectResponse(authorizeUrl(cfg.clientId, state, allowWorkflow), [stateCookie(state)]);
+  return redirectResponse(authorizeUrl(cfg, state, allowWorkflow), [stateCookie(state)]);
 }

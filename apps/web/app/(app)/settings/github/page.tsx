@@ -101,8 +101,8 @@ export default async function AccountsPage({
         ) : (
           <Section title="GitHub" actions={<StatusBadge status="none" label="Not available" />}>
             <p className="text-sm text-muted-foreground">
-              GitHub connection is not set up on this server. Ask an administrator to configure it
-              in settings.
+              GitHub connection is not enabled on this server yet. Ask an administrator to turn it
+              on.
             </p>
           </Section>
         )}

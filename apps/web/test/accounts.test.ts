@@ -71,9 +71,10 @@ describe("GitHub scopes", () => {
     expect(githubScopeString(false)).toBe("repo read:org gist");
     expect(githubScopeString(true)).toBe("repo read:org gist workflow");
     expect([...GITHUB_BASE_SCOPES]).not.toContain(GITHUB_WORKFLOW_SCOPE);
-    const plain = new URL(authorizeUrl("cid", "st"));
+    const cfg = { clientId: "cid", callbackPath: "/api/github/callback" };
+    const plain = new URL(authorizeUrl(cfg, "st"));
     expect(plain.searchParams.get("scope")).toBe("repo read:org gist");
-    const opt = new URL(authorizeUrl("cid", "st", true));
+    const opt = new URL(authorizeUrl(cfg, "st", true));
     expect(opt.searchParams.get("scope")).toBe("repo read:org gist workflow");
   });
 
