@@ -4,13 +4,13 @@ import {
   type CopilotDetail,
   type CopilotIntegrationStatus,
 } from "@agentbox/core/accounts";
-import { githubConnections, workspaceIntegrations, workspaces } from "@agentbox/db/schema";
+import { gitConnections, workspaceIntegrations, workspaces } from "@agentbox/db/schema";
 import { writeAudit } from "./audit";
 import type { Db, DbLike } from "./db-types";
 import { UserError } from "./errors";
 import { enqueueWorkspaceJob } from "./jobs";
 
-/** Account integrations the user controls from /settings/github (GitHub, Copilot). */
+/** Account integrations the user controls from /settings/accounts (git hosts, Copilot). */
 
 type IntegrationRow = typeof workspaceIntegrations.$inferSelect;
 
@@ -136,8 +136,8 @@ export async function cancelOrSignOutCopilot(
     .set({ status: next, observedAt: new Date() })
     .where(copilotRow(ws.id));
   if (!live) {
-    // sync_github reconciles Copilot too; a sleeping workspace applies it on next start.
-    await enqueueWorkspaceJob(database, ws.id, { type: "sync_github" });
+    // sync_git reconciles Copilot too; a sleeping workspace applies it on next start.
+    await enqueueWorkspaceJob(database, ws.id, { type: "sync_git" });
   }
   await writeAudit(database, {
     actorId: input.userId,
@@ -149,46 +149,48 @@ export async function cancelOrSignOutCopilot(
 }
 
 /**
- * Remove the GitHub link and everything it put in the workspace. The row delete and the reverse
- * state (gh logout, credential helpers, Copilot login if AgentBox signed it in) are queued in one
- * transaction; the worker applies them now or on next start. Returns the removed connection so the
- * caller can revoke the grant at GitHub.
+ * Remove one git connection and everything it put in the workspace (credentials, SSH config block;
+ * for GitHub also gh login and the Copilot sign-in AgentBox did). The row delete and the reverse
+ * state are queued in one transaction; the worker applies them now or on next start. Returns the
+ * removed row so the caller can delete the uploaded key and revoke the grant at the provider.
  */
-export async function disconnectGithubAccount(
+export async function disconnectGitConnection(
   database: Db,
-  input: { userId: string; ip: string | null },
-): Promise<typeof githubConnections.$inferSelect | null> {
+  input: { userId: string; connectionId: string; ip: string | null },
+): Promise<typeof gitConnections.$inferSelect | null> {
   return database.transaction(async (tx) => {
     const [conn] = await tx
-      .select()
-      .from(githubConnections)
-      .where(eq(githubConnections.userId, input.userId))
-      .limit(1);
+      .delete(gitConnections)
+      .where(
+        and(eq(gitConnections.id, input.connectionId), eq(gitConnections.userId, input.userId)),
+      )
+      .returning();
     if (!conn) return null;
-    await tx.delete(githubConnections).where(eq(githubConnections.userId, input.userId));
     const [ws] = await tx
       .select({ id: workspaces.id, status: workspaces.status })
       .from(workspaces)
       .where(eq(workspaces.userId, input.userId))
       .limit(1);
     if (ws && ws.status !== "deleted" && ws.status !== "deleting") {
-      const cop = await loadCopilot(tx, ws.id);
-      if (cop && cop.status !== "signing_out") {
-        const live = cop.status === "starting" || cop.status === "code";
-        // A live sign-in is cancelled by the worker loop, then signed out on the next sync.
-        await tx
-          .update(workspaceIntegrations)
-          .set({ status: live ? "cancelling" : "signing_out", observedAt: new Date() })
-          .where(copilotRow(ws.id));
+      if (conn.provider === "github") {
+        const cop = await loadCopilot(tx, ws.id);
+        if (cop && cop.status !== "signing_out") {
+          const live = cop.status === "starting" || cop.status === "code";
+          // A live sign-in is cancelled by the worker loop, then signed out on the next sync.
+          await tx
+            .update(workspaceIntegrations)
+            .set({ status: live ? "cancelling" : "signing_out", observedAt: new Date() })
+            .where(copilotRow(ws.id));
+        }
       }
-      await enqueueWorkspaceJob(tx, ws.id, { type: "sync_github" });
+      await enqueueWorkspaceJob(tx, ws.id, { type: "sync_git" });
     }
     await writeAudit(tx, {
       actorId: input.userId,
-      action: "github.disconnected",
+      action: "git.disconnected",
       targetType: "user",
       targetId: input.userId,
-      metadata: { login: conn.login },
+      metadata: { provider: conn.provider, host: conn.host, login: conn.login },
       ip: input.ip,
     });
     return conn;

@@ -22,7 +22,7 @@ export async function enqueueWorkspaceJob(
           | "start_workspace"
           | "restart_workspace"
           | "update_limits"
-          | "sync_github"
+          | "sync_git"
           | "sync_agent_keys"
           | "copilot_login";
       }

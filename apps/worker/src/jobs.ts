@@ -13,7 +13,6 @@ import {
 } from "@agentbox/core/job-contracts";
 import {
   agentKeys,
-  githubConnections,
   images,
   jobs,
   plans,
@@ -23,7 +22,8 @@ import {
 } from "@agentbox/db/schema";
 import { AgentError } from "./agent-client.ts";
 import { errMessage } from "./log.ts";
-import { reconcileCopilot, startCopilotLogin } from "./accounts.ts";
+import { startCopilotLogin } from "./accounts.ts";
+import { reconcileGit } from "./git.ts";
 import { addEvent, enqueueJob } from "./queue.ts";
 import { reconcileAfterStart, reconcileToolchain } from "./toolchain.ts";
 import type { Ctx } from "./types.ts";
@@ -105,44 +105,6 @@ function limitsOf(plan: typeof plans.$inferSelect | null, slug: string) {
       inodes: plan.inodesLimit,
     },
   };
-}
-
-/** Reconcile the workspace's GitHub and Copilot accounts with the DB (github_connections, workspace_integrations). */
-export async function reconcileGithub(ctx: Ctx, ws: WorkspaceRow): Promise<void> {
-  if (ws.status !== "running") {
-    await ctx.db
-      .update(workspaces)
-      .set({ githubSyncPending: true })
-      .where(eq(workspaces.id, ws.id));
-    return;
-  }
-  const [conn] = await ctx.db
-    .select()
-    .from(githubConnections)
-    .where(eq(githubConnections.userId, ws.userId));
-  try {
-    if (conn) {
-      await ctx.agent.githubConnect(ws.slug, {
-        token: decrypt(conn.tokenEnc, ctx.config.encryptionKey),
-        login: conn.login,
-        email: `${conn.githubId}+${conn.login}@users.noreply.github.com`,
-      });
-    } else {
-      await ctx.agent.githubDisconnect(ws.slug);
-    }
-    await reconcileCopilot(ctx, ws);
-  } catch (e) {
-    // 409: the container is not running (anymore); the next start reconciles.
-    if (e instanceof AgentError && e.status === 409) {
-      await ctx.db
-        .update(workspaces)
-        .set({ githubSyncPending: true })
-        .where(eq(workspaces.id, ws.id));
-      return;
-    }
-    throw e;
-  }
-  await ctx.db.update(workspaces).set({ githubSyncPending: false }).where(eq(workspaces.id, ws.id));
 }
 
 /**
@@ -233,13 +195,13 @@ async function startWorkspace(
     await addEvent(ctx.db, ws.id, "start_failed", { error: errMessage(e) });
     throw e;
   }
-  if (ws.githubSyncPending) {
+  if (ws.gitSyncPending) {
     const [fresh] = await ctx.db.select().from(workspaces).where(eq(workspaces.id, ws.id));
     if (fresh) {
       try {
-        await reconcileGithub(ctx, fresh);
+        await reconcileGit(ctx, fresh);
       } catch (e) {
-        ctx.log.warn("github reconcile after start failed", { ws: ws.slug, error: errMessage(e) });
+        ctx.log.warn("git reconcile after start failed", { ws: ws.slug, error: errMessage(e) });
       }
     }
   }
@@ -349,10 +311,10 @@ export const handlers: Record<JobRow["type"], Handler> = {
       .where(eq(workspaceSessions.workspaceId, ws.id));
   },
 
-  async sync_github(ctx, job) {
+  async sync_git(ctx, job) {
     const { ws } = await loadTenant(ctx, job);
     if (ws.status === "deleted" || ws.status === "deleting") return;
-    await reconcileGithub(ctx, ws);
+    await reconcileGit(ctx, ws);
   },
 
   async sync_agent_keys(ctx, job) {

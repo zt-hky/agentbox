@@ -21,6 +21,9 @@ export type RouteFn = (call: FakeCall) => Reply | Promise<Reply>;
 
 export const TOKEN = "test-agent-token";
 export const IMAGE_ID = "a".repeat(64);
+/** The public key the fake agent reports for every workspace. */
+export const WORKSPACE_SSH_KEY =
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeWorkspaceKeyFakeWorkspaceKeyFake0000 agentbox:alice";
 
 /** What the fake agent reports for one toolchain run. */
 export interface ToolchainScriptReply {
@@ -85,6 +88,9 @@ function defaultReply(method: string, path: string): Reply {
   }
   if (method === "GET" && /^\/v1\/images\/build\/[^/]+\/log$/.test(path)) {
     return { json: { log: "step 1\nstep 2" } };
+  }
+  if (method === "PUT" && /^\/v1\/workspaces\/[^/]+\/git$/.test(path)) {
+    return { json: { sshPublicKey: WORKSPACE_SSH_KEY } };
   }
   return { json: { ok: true } };
 }

@@ -6,7 +6,7 @@ import { readSetting } from "@agentbox/db/client";
 import { upsertToolLatest } from "@agentbox/db/toolchain";
 import {
   agentKeys,
-  githubConnections,
+  gitConnections,
   jobs,
   toolchainRuns,
   user,
@@ -119,9 +119,14 @@ describe("agent keys", () => {
 describe("createWorkspaceForUser", () => {
   it("creates the workspace at onboarding with the selection, pending toolchain and a provision job", async () => {
     const { userId, slug } = await approved();
-    await t.db
-      .insert(githubConnections)
-      .values({ userId, login: "gh", githubId: 1n, tokenEnc: "x" });
+    await t.db.insert(gitConnections).values({
+      userId,
+      provider: "github",
+      host: "github.com",
+      method: "oauth",
+      login: "gh",
+      tokenEnc: "x",
+    });
     await saveSelection(t.db, userId, "runtime", ["rust", "go"]);
     await saveSelection(t.db, userId, "agent", ["claude"]);
 
@@ -132,13 +137,18 @@ describe("createWorkspaceForUser", () => {
       slug,
       status: "provisioning",
       toolchainPending: true,
-      githubSyncPending: true,
+      gitSyncPending: true,
       dataKept: false,
     });
     expect(await jobTypes(ws.id)).toEqual(["provision_tenant"]);
-    const tools = await t.db.select().from(workspaceTools).where(eq(workspaceTools.workspaceId, ws.id));
+    const tools = await t.db
+      .select()
+      .from(workspaceTools)
+      .where(eq(workspaceTools.workspaceId, ws.id));
     expect(tools.map((r) => r.toolId).sort()).toEqual(["claude", "go", "rust"]);
-    expect(tools.every((r) => r.desired && r.state === "pending" && r.source === "user")).toBe(true);
+    expect(tools.every((r) => r.desired && r.state === "pending" && r.source === "user")).toBe(
+      true,
+    );
 
     // Calling again while it is being created changes nothing.
     expect((await create(userId)).outcome).toBe("inflight");
@@ -187,7 +197,10 @@ describe("createWorkspaceForUser", () => {
     expect(again.slot).toBeGreaterThan(first.slot);
     expect(again.status).toBe("provisioning");
     expect(again.identitySecretEnc).not.toBe(first.identitySecretEnc);
-    const tools = await t.db.select().from(workspaceTools).where(eq(workspaceTools.workspaceId, again.id));
+    const tools = await t.db
+      .select()
+      .from(workspaceTools)
+      .where(eq(workspaceTools.workspaceId, again.id));
     expect(tools.map((r) => r.toolId)).toEqual(["go"]);
     expect(await jobTypes(again.id)).toEqual(["provision_tenant"]);
   });
@@ -225,12 +238,17 @@ describe("createWorkspaceForUser", () => {
     await saveSelection(t.db, userId, "runtime", ["go"]);
     const res = await create(userId);
     expect(res.outcome).toBe("applied");
-    const tools = await t.db.select().from(workspaceTools).where(eq(workspaceTools.workspaceId, ws.id));
+    const tools = await t.db
+      .select()
+      .from(workspaceTools)
+      .where(eq(workspaceTools.workspaceId, ws.id));
     const by = new Map(tools.map((r) => [r.toolId, r.desired]));
     expect(by.get("go")).toBe(true);
     expect(by.get("node")).toBe(false);
     expect(await jobTypes(ws.id)).toContain("reconcile_toolchain");
-    expect((await t.db.select().from(toolchainRuns).where(eq(toolchainRuns.workspaceId, ws.id))).length).toBe(1);
+    expect(
+      (await t.db.select().from(toolchainRuns).where(eq(toolchainRuns.workspaceId, ws.id))).length,
+    ).toBe(1);
   });
 });
 
@@ -374,7 +392,10 @@ describe("user lifecycle", () => {
     expect(u!.onboardedAt).toBeNull();
     expect(u!.onboardingSelection).not.toBeNull();
     expect(await t.db.select().from(agentKeys).where(eq(agentKeys.userId, userId))).toHaveLength(1);
-    const sessions = await t.db.select().from(workspaceSessions).where(eq(workspaceSessions.userId, userId));
+    const sessions = await t.db
+      .select()
+      .from(workspaceSessions)
+      .where(eq(workspaceSessions.userId, userId));
     expect(sessions.every((s) => s.revokedAt !== null)).toBe(true);
   });
 

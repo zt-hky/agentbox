@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { gitProviderIdSchema } from "./git.ts";
 import { imageManifestSchema } from "./toolchain/gate.ts";
 
 /** Route params */
@@ -87,13 +88,30 @@ export const startWorkspaceResponseSchema = z.object({
 });
 export type StartWorkspaceResponse = z.infer<typeof startWorkspaceResponseSchema>;
 
-/** POST /v1/workspaces/:ws/github */
-export const githubConnectRequestSchema = z.object({
-  token: z.string().min(1),
+/** One connected git host in the desired state pushed to the workspace. */
+export const gitConnectionSchema = z.object({
+  provider: gitProviderIdSchema,
+  /** Bare hostname, validated by the web app (`normalizeGitHost`) or one of the fixed provider hosts. */
+  host: z.string().min(1),
   login: z.string().min(1),
-  email: z.string().min(1),
+  token: z.string().min(1),
+  /** Username git presents with the token over HTTPS. */
+  username: z.string().min(1),
+  /** known_hosts text for self-hosted hosts (pinned hosts ship their keys in the agent). */
+  knownHosts: z.string().min(1).optional(),
 });
-export type GithubConnectRequest = z.infer<typeof githubConnectRequestSchema>;
+export type GitConnectionSpec = z.infer<typeof gitConnectionSchema>;
+
+/** PUT /v1/workspaces/:ws/git: the full desired git state; the agent reconciles to exactly this. */
+export const putGitRequestSchema = z.object({
+  connections: z.array(gitConnectionSchema).max(32),
+  /** git user.name/email, set only when unset in the workspace. */
+  identity: z.object({ name: z.string().min(1), email: z.string().min(1) }).optional(),
+});
+export type PutGitRequest = z.infer<typeof putGitRequestSchema>;
+
+export const putGitResponseSchema = z.object({ sshPublicKey: z.string().min(1) });
+export type PutGitResponse = z.infer<typeof putGitResponseSchema>;
 
 /** POST /v1/images/build */
 export const buildImageRequestSchema = z.object({

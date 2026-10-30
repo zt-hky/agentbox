@@ -2,7 +2,8 @@ import type { CopilotProviderRequest } from "@agentbox/core/accounts";
 import { stat } from "node:fs/promises";
 import type {
   AgentKeysRequest,
-  GithubConnectRequest,
+  PutGitRequest,
+  PutGitResponse,
   WorkspaceLogResponse,
   WorkspaceTopResponse,
   StartWorkspaceRequest,
@@ -13,7 +14,6 @@ import {
   copilotLoginStart,
   copilotLoginState,
   copilotLogout,
-  ghDisconnect,
   setCopilotProvider,
   writeAgentKeys,
   type ContainerExec,
@@ -28,11 +28,12 @@ import {
 } from "./argv.ts";
 import { CONTAINER_NAME, HEALTH_TIMEOUT_MS, STOP_TIMEOUT_SEC } from "./config.ts";
 import { HttpError } from "./errors.ts";
+import { reconcileGit } from "./git.ts";
 import { runAs } from "./exec.ts";
 import { logEvent } from "./log.ts";
 import { mergeLogStreams, parsePodmanTime, parsePodmanTop } from "./diagnostics.ts";
 import { ensurePodmanSocket } from "./monitor.ts";
-import { isPlainArg, isSafeCgroupPath, slotOfUid } from "./safe.ts";
+import { isSafeCgroupPath, slotOfUid } from "./safe.ts";
 import { registry, withLock } from "./state.ts";
 import { requireTenant, startUserManager, stopUserManager, userManagerUp } from "./tenants.ts";
 
@@ -209,38 +210,13 @@ const execFor =
   (args, opts) =>
     exec(ws, args, opts);
 
-export function githubConnect(ws: string, req: GithubConnectRequest): Promise<void> {
-  return withLock(ws, async () => {
-    if (/[\r\n\0]/.test(req.token)) throw new HttpError(400, "invalid token");
-    if (!isPlainArg(req.login) || !isPlainArg(req.email))
-      throw new HttpError(400, "invalid login or email");
-    await requireRunning(ws);
-    const redact = [req.token];
-    await exec(ws, ["gh", "auth", "login", "--hostname", "github.com", "--with-token"], {
-      input: `${req.token}\n`,
-      redact,
-    });
-    await exec(ws, ["gh", "auth", "setup-git"], { redact });
-    for (const [key, value] of [
-      ["user.name", req.login],
-      ["user.email", req.email],
-    ] as const) {
-      const cur = await exec(ws, ["git", "config", "--global", "--get", key], { check: false });
-      if (cur.code === 1 || (cur.code === 0 && cur.stdout.trim() === "")) {
-        await exec(ws, ["git", "config", "--global", key, value]);
-      } else if (cur.code !== 0) {
-        throw new HttpError(500, `git config --get ${key} failed (${cur.code})`);
-      }
-    }
-    logEvent({ ws, event: "github_connected" });
-  });
-}
-
-export function githubDisconnect(ws: string): Promise<void> {
+/** Reconcile the workspace's git accounts to exactly `req` (full desired state). */
+export function putGit(ws: string, req: PutGitRequest): Promise<PutGitResponse> {
   return withLock(ws, async () => {
     await requireRunning(ws);
-    await ghDisconnect(execFor(ws));
-    logEvent({ ws, event: "github_disconnected" });
+    const out = await reconcileGit(execFor(ws), ws, req);
+    logEvent({ ws, event: "git_synced", connections: req.connections.length });
+    return out;
   });
 }
 

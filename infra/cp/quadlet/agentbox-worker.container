@@ -8,6 +8,8 @@ ContainerName=agentbox-worker
 Image=localhost/agentbox-worker:latest
 Pod=agentbox-cp.pod
 EnvironmentFile=/var/lib/agentbox-cp/cp.env
+# GITLAB_*/BITBUCKET_* OAuth client credentials (token refresh); other optional values are ignored.
+EnvironmentFile=/var/lib/agentbox-cp/optional.env
 Secret=database_url,type=env,target=DATABASE_URL
 Secret=encryption_key,type=env,target=AGENTBOX_ENCRYPTION_KEY
 Secret=agent_token,type=env,target=AGENTBOX_AGENT_TOKEN

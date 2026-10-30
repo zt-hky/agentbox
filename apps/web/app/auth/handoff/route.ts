@@ -1,5 +1,5 @@
 import { db } from "@agentbox/db/client";
-import { redirectResponse } from "@/lib/github";
+import { redirectResponse } from "@/lib/git-oauth";
 import { issueHandoffCode } from "@/lib/handoff";
 import { decideForRequest } from "@/lib/handoff-server";
 import { sanitizeReturnPath } from "@/lib/paths";

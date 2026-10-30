@@ -3,7 +3,8 @@ import { eq } from "drizzle-orm";
 import { COPILOT_INTEGRATION_STATUSES, type CopilotLoginState } from "@agentbox/core/accounts";
 import { jobs, workspaceIntegrations, workspaces } from "@agentbox/db/schema";
 import { pollCopilotLogins, reconcileCopilot, startCopilotLogin } from "../src/accounts.ts";
-import { JobRunner, reconcileGithub } from "../src/jobs.ts";
+import { reconcileGit } from "../src/git.ts";
+import { JobRunner } from "../src/jobs.ts";
 import { enqueueJob } from "../src/queue.ts";
 import { createClock, makeCtx } from "./helpers/ctx.ts";
 import { createTestDb, resetDb, type TestDb } from "./helpers/db.ts";
@@ -227,29 +228,29 @@ describe("disconnect reverse state (worker)", () => {
     expect(agent.calls).toHaveLength(0);
   });
 
-  it("sync with no GitHub link runs gh disconnect and then the Copilot sign-out; sleeping defers both", async () => {
+  it("sync with no git link pushes an empty desired state and then the Copilot sign-out; sleeping defers both", async () => {
     const w = await seedWorld(t.db, { status: "sleeping" });
     await seedRow(w.workspaceId, "signing_out");
-    await reconcileGithub(ctx(), await ws(w.workspaceId));
+    await reconcileGit(ctx(), await ws(w.workspaceId));
     expect(agent.calls).toHaveLength(0);
-    expect((await ws(w.workspaceId)).githubSyncPending).toBe(true);
+    expect((await ws(w.workspaceId)).gitSyncPending).toBe(true);
     expect((await row(w.workspaceId))!.status).toBe("signing_out");
 
     await t.db.update(workspaces).set({ status: "running" });
-    await reconcileGithub(ctx(), await ws(w.workspaceId));
+    await reconcileGit(ctx(), await ws(w.workspaceId));
     expect(agent.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
-      "DELETE /v1/workspaces/alice/github",
+      "PUT /v1/workspaces/alice/git",
       "DELETE /v1/workspaces/alice/copilot",
     ]);
     expect(await row(w.workspaceId)).toBeUndefined();
-    expect((await ws(w.workspaceId)).githubSyncPending).toBe(false);
+    expect((await ws(w.workspaceId)).gitSyncPending).toBe(false);
   });
 
   it("a signed-in workspace gets the T3 provider (idempotent upsert) on every sync", async () => {
     const w = await seedWorld(t.db);
     await seedRow(w.workspaceId, "signed_in", { signedInAt: "2026-03-01T00:00:00.000Z" });
-    await reconcileGithub(ctx(), await ws(w.workspaceId));
-    await reconcileGithub(ctx(), await ws(w.workspaceId));
+    await reconcileGit(ctx(), await ws(w.workspaceId));
+    await reconcileGit(ctx(), await ws(w.workspaceId));
     const seeds = agent.callsTo("PUT /v1/workspaces/alice/copilot/provider");
     expect(seeds.map((c) => c.body)).toEqual([{ enabled: true }, { enabled: true }]);
     expect((await row(w.workspaceId))!.status).toBe("signed_in");

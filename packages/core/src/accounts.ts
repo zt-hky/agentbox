@@ -3,7 +3,8 @@ import { z } from "zod";
 /** Account integrations beyond the gh token: GitHub scopes, Copilot sign-in, T3 Copilot provider. */
 
 /** Minimum OAuth scopes; `workflow` is an explicit opt-in (re-consent). */
-export const GITHUB_BASE_SCOPES = ["repo", "read:org", "gist"] as const;
+/** `write:public_key` lets AgentBox upload the workspace SSH key; tokens without it keep HTTPS only. */
+export const GITHUB_BASE_SCOPES = ["repo", "read:org", "gist", "write:public_key"] as const;
 export const GITHUB_WORKFLOW_SCOPE = "workflow";
 
 export function githubScopeString(allowWorkflow: boolean): string {

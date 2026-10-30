@@ -78,6 +78,13 @@
       "when": 1793349956388,
       "tag": "0010_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793359259105,
+      "tag": "0011_git_accounts",
+      "breakpoints": true
     }
   ]
 }

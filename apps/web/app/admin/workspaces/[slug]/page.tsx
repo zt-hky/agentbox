@@ -330,7 +330,7 @@ async function OverviewTab({
                   "None"
                 ),
             },
-            { label: "GitHub sync", value: w.githubSyncPending ? "Pending" : "Up to date" },
+            { label: "Git sync", value: w.gitSyncPending ? "Pending" : "Up to date" },
             { label: "Created", value: formatDateTime(w.createdAt) },
           ]}
         />

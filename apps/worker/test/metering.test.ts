@@ -322,7 +322,7 @@ describe("metering transaction", () => {
 
   it("writes the worker heartbeat with queue counts into the payload", async () => {
     const row = (status: "queued" | "running" | "failed", finishedAt: Date | null) => ({
-      type: "sync_github" as const,
+      type: "sync_git" as const,
       workspaceId: null,
       status,
       finishedAt,

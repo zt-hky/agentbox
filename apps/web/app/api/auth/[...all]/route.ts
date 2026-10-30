@@ -1,8 +1,8 @@
 import { getAuth } from "@/lib/auth";
 import { isBlockedAuthPath } from "@/lib/auth-paths";
 import { GITHUB_SHARED_CALLBACK_PATH } from "@/lib/env";
-import { isConnectCallback } from "@/lib/github";
-import { handleGithubCallback } from "@/lib/github-callback";
+import { handleGitCallback } from "@/lib/git-callback";
+import { isConnectCallback } from "@/lib/git-oauth";
 
 // better-auth endpoints. The admin plugin's HTTP endpoints are blocked: every admin mutation in
 // AgentBox goes through audited server actions instead.
@@ -17,7 +17,7 @@ async function handle(request: Request): Promise<Response> {
     pathname === GITHUB_SHARED_CALLBACK_PATH &&
     isConnectCallback(request)
   ) {
-    return handleGithubCallback(request);
+    return handleGitCallback("github", request);
   }
   return getAuth().handler(request);
 }

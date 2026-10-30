@@ -17,6 +17,8 @@
     "./images": "./src/images.ts",
     "./toolchain": "./src/toolchain/index.ts",
     "./accounts": "./src/accounts.ts",
+    "./git": "./src/git.ts",
+    "./git-api": "./src/git-api.ts",
     "./agent-credentials": "./src/agent-credentials.ts"
   },
   "scripts": {

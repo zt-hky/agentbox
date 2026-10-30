@@ -22,12 +22,13 @@
    to `{channel, pinnedVersion}`) until a workspace exists. Defaults come from the admin toolchain
    defaults, or from the workspace's current tools for a user who already has one. Creating the
    workspace writes the chosen channel and version into the new `workspace_tools` rows.
-3. Accounts: GitHub through the existing connect flow (`/api/github/connect?next=/onboarding` returns
-   to `/onboarding?connected=1|error=...`), and one optional key per agent (below).
-4. Create workspace (`createWorkspaceForUser`, `apps/web/lib/workspace-create.ts`): inserts the
+2. Accounts: git hosts through the shared accounts component (`/api/git/<provider>/connect?next=/onboarding`
+   returns to `/onboarding?connected=<provider>|error=...`; see `docs/accounts.md`), and one optional key
+   per agent (below).
+3. Create workspace (`createWorkspaceForUser`, `apps/web/lib/workspace-create.ts`): inserts the
    workspace (`provisioning`, `toolchain_pending`), writes the selection as `workspace_tools` rows and
    queues `provision_tenant`. The worker provisions, then starts the workspace (a provision with
-   `toolchain_pending` queues `start_workspace`); the start hook syncs GitHub and agent keys and queues
+   `toolchain_pending` queues `start_workspace`); the start hook syncs git accounts and agent keys and queues
    the toolchain reconcile, which installs the tools. The wizard polls `loadOnboardingProgress`
    (provision, start, tools) and `finishOnboarding` sets `onboarded_at` once the workspace is up and the
    run has settled. A user who already has a live workspace gets the selection applied to it instead
@@ -37,7 +38,7 @@
 ## Agent keys
 
 `agent_keys` holds one encrypted value per `(user, env var)`, using the same AES-GCM helper and
-`AGENTBOX_ENCRYPTION_KEY` as `github_connections`. Which variables each agent accepts is
+`AGENTBOX_ENCRYPTION_KEY` as `git_connections`. Which variables each agent accepts is
 `packages/core/src/agent-credentials.ts` (Claude: `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` from
 `claude setup-token`; Codex: `OPENAI_API_KEY`; Grok: `XAI_API_KEY`; Oh My Pi, Pi, OpenCode: the Anthropic
 or OpenAI key). Keys are optional and skippable. The UI only ever sees a masked form.

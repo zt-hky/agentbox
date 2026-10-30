@@ -35,3 +35,8 @@ export function decrypt(payload: string, keyB64: string): string {
     decipher.final(),
   ]).toString("utf8");
 }
+/** `SHA256:<base64>` fingerprint of an `<type> <base64 key>` public key line. */
+export function sshKeyFingerprint(line: string): string {
+  const blob = Buffer.from(line.trim().split(/\s+/)[1] ?? "", "base64");
+  return `SHA256:${createHash("sha256").update(blob).digest("base64").replace(/=+$/, "")}`;
+}

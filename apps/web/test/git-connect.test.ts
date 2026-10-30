@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { githubConnectConfig } from "../lib/env";
+import { exchangeOAuthCode } from "@agentbox/core/git-api";
+import { gitOAuthConfig } from "../lib/env";
 import {
-  GH_STATE_COOKIE,
+  GIT_STATE_COOKIE,
   authorizeUrl,
-  exchangeCode,
+  callbackUrl,
   isConnectCallback,
+  returnBase,
   revokeConnection,
-} from "../lib/github";
+} from "../lib/git-oauth";
 
 const KEYS = [
   "GITHUB_CONNECT_CLIENT_ID",
@@ -15,9 +17,13 @@ const KEYS = [
   "GITHUB_CLIENT_SECRET",
   "APP_ORIGIN",
   "BETTER_AUTH_URL",
+  "GITLAB_CLIENT_ID",
+  "GITLAB_CLIENT_SECRET",
+  "BITBUCKET_CLIENT_ID",
+  "BITBUCKET_CLIENT_SECRET",
 ];
 
-describe("github connect", () => {
+describe("git connect", () => {
   const saved: Record<string, string | undefined> = {};
   beforeEach(() => {
     for (const k of KEYS) {
@@ -34,19 +40,19 @@ describe("github connect", () => {
   });
 
   it("prefers dedicated, then shared, then null", () => {
-    expect(githubConnectConfig()).toBeNull();
+    expect(gitOAuthConfig("github")).toBeNull();
     process.env.GITHUB_CLIENT_ID = "sid";
     process.env.GITHUB_CLIENT_SECRET = "ssec";
-    expect(githubConnectConfig()).toEqual({
+    expect(gitOAuthConfig("github")).toEqual({
       clientId: "sid",
       clientSecret: "ssec",
       callbackPath: "/api/auth/callback/github",
       shared: true,
     });
     process.env.GITHUB_CONNECT_CLIENT_ID = "did";
-    expect(githubConnectConfig()?.clientId).toBe("sid");
+    expect(gitOAuthConfig("github")?.clientId).toBe("sid");
     process.env.GITHUB_CONNECT_CLIENT_SECRET = "dsec";
-    expect(githubConnectConfig()).toEqual({
+    expect(gitOAuthConfig("github")).toEqual({
       clientId: "did",
       clientSecret: "dsec",
       callbackPath: "/api/github/callback",
@@ -60,24 +66,67 @@ describe("github connect", () => {
       clientSecret: "ssec",
       callbackPath: "/api/auth/callback/github",
     };
-    const u = new URL(authorizeUrl(cfg, "st"));
+    const u = new URL(authorizeUrl("github", cfg, "st"));
     expect(new URL(u.searchParams.get("redirect_uri")!).pathname).toBe(cfg.callbackPath);
     const fetchMock = vi.fn(async () => Response.json({ access_token: "t", scope: "repo" }));
     vi.stubGlobal("fetch", fetchMock);
-    await exchangeCode(cfg, "code");
+    await exchangeOAuthCode("github", cfg, "code", callbackUrl(cfg));
     const body = JSON.parse(
       (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string,
     );
     expect(new URL(body.redirect_uri).pathname).toBe(cfg.callbackPath);
   });
 
+  it("gitlab and bitbucket are configured by their own env, with fixed callbacks", () => {
+    expect(gitOAuthConfig("gitlab")).toBeNull();
+    expect(gitOAuthConfig("bitbucket")).toBeNull();
+    process.env.GITLAB_CLIENT_ID = "gid";
+    expect(gitOAuthConfig("gitlab")).toBeNull();
+    process.env.GITLAB_CLIENT_SECRET = "gsec";
+    process.env.BITBUCKET_CLIENT_ID = "bid";
+    process.env.BITBUCKET_CLIENT_SECRET = "bsec";
+    expect(gitOAuthConfig("gitlab")).toEqual({
+      clientId: "gid",
+      clientSecret: "gsec",
+      callbackPath: "/api/git/gitlab/callback",
+      shared: false,
+    });
+    expect(gitOAuthConfig("bitbucket")?.callbackPath).toBe("/api/git/bitbucket/callback");
+  });
+
+  it("builds the authorize URL per provider", () => {
+    const gl = new URL(
+      authorizeUrl("gitlab", { clientId: "gid", callbackPath: "/api/git/gitlab/callback" }, "st"),
+    );
+    expect(gl.origin + gl.pathname).toBe("https://gitlab.com/oauth/authorize");
+    expect(gl.searchParams.get("scope")).toBe("api read_user write_repository");
+    expect(gl.searchParams.get("response_type")).toBe("code");
+    expect(new URL(gl.searchParams.get("redirect_uri")!).pathname).toBe("/api/git/gitlab/callback");
+    const bb = new URL(
+      authorizeUrl(
+        "bitbucket",
+        { clientId: "bid", callbackPath: "/api/git/bitbucket/callback" },
+        "st",
+      ),
+    );
+    expect(bb.origin + bb.pathname).toBe("https://bitbucket.org/site/oauth2/authorize");
+    expect(bb.searchParams.get("scope")).toBeNull();
+    expect(bb.searchParams.get("state")).toBe("st");
+  });
+
+  it("returns to onboarding only when it started there", () => {
+    expect(returnBase("/onboarding")).toBe("/onboarding");
+    expect(returnBase(null)).toBe("/settings/accounts");
+    expect(returnBase("https://evil.example")).toBe("/settings/accounts");
+  });
+
   it("routes the shared callback to Connect only when the state matches its cookie", () => {
     const cb = "https://app.example/api/auth/callback/github?code=c&state=";
     const withCookie = (state: string, cookie?: string) =>
       new Request(cb + state, cookie ? { headers: { cookie } } : undefined);
-    expect(isConnectCallback(withCookie("abc", `x=1; ${GH_STATE_COOKIE}=abc`))).toBe(true);
+    expect(isConnectCallback(withCookie("abc", `x=1; ${GIT_STATE_COOKIE}=abc`))).toBe(true);
     // A sign-in callback: better-auth's own state, stale or absent Connect cookie.
-    expect(isConnectCallback(withCookie("signin", `${GH_STATE_COOKIE}=abc`))).toBe(false);
+    expect(isConnectCallback(withCookie("signin", `${GIT_STATE_COOKIE}=abc`))).toBe(false);
     expect(isConnectCallback(withCookie("abc"))).toBe(false);
   });
 

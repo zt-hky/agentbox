@@ -74,12 +74,12 @@ describe("retryJob", () => {
 
   it("refuses when an active job of the same workspace and type exists, leaving the job untouched", async () => {
     const failed = await addJob({
-      type: "sync_github",
+      type: "sync_git",
       status: "failed",
       attempts: 3,
       lastError: "boom",
     });
-    await addJob({ type: "sync_github", status: "queued" });
+    await addJob({ type: "sync_git", status: "queued" });
     await expect(retryJob(t.db, { jobId: failed.id, admin: admin(), ip })).rejects.toThrow(
       /already queued/,
     );

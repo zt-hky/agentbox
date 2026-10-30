@@ -29,7 +29,7 @@ export const USER_NAV: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, exact: true },
   { title: "Billing", url: "/billing", icon: CreditCard },
   { title: "Tools", url: "/tools", icon: Wrench },
-  { title: "Accounts", url: "/settings/github", icon: GitBranch },
+  { title: "Accounts", url: "/settings/accounts", icon: GitBranch },
   { title: "Sessions", url: "/settings/sessions", icon: KeyRound },
 ];
 

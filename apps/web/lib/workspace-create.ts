@@ -3,7 +3,7 @@ import { encrypt, randomToken } from "@agentbox/core/tokens";
 import { CATALOG, type ToolDefault } from "@agentbox/core/toolchain";
 import { loadToolchainSettings, requestReconcile } from "@agentbox/db/toolchain";
 import {
-  githubConnections,
+  gitConnections,
   subscriptions,
   user,
   workspaceTools,
@@ -73,14 +73,18 @@ export async function applySelectionRows(
     await database
       .update(workspaceTools)
       .set({ desired: true, source: "user", updatedAt: new Date() })
-      .where(and(eq(workspaceTools.workspaceId, workspaceId), inArray(workspaceTools.toolId, keep)));
+      .where(
+        and(eq(workspaceTools.workspaceId, workspaceId), inArray(workspaceTools.toolId, keep)),
+      );
   }
   const drop = existing.map((r) => r.toolId).filter((id) => !selected.has(id));
   if (drop.length > 0) {
     await database
       .update(workspaceTools)
       .set({ desired: false, source: "user", updatedAt: new Date() })
-      .where(and(eq(workspaceTools.workspaceId, workspaceId), inArray(workspaceTools.toolId, drop)));
+      .where(
+        and(eq(workspaceTools.workspaceId, workspaceId), inArray(workspaceTools.toolId, drop)),
+      );
   }
 }
 
@@ -123,7 +127,14 @@ export async function createWorkspaceForUser(
         return { workspaceId: old.id, slug: old.slug, outcome: "inflight" };
       }
       await assertCanApplyToolchain(tx, { userId: target.id, workspaceStatus: old.status, now });
-      await applySelectionRows(tx, old.id, selected, settings.defaults, disabled, selection.versions);
+      await applySelectionRows(
+        tx,
+        old.id,
+        selected,
+        settings.defaults,
+        disabled,
+        selection.versions,
+      );
       return { workspaceId: old.id, slug: old.slug, outcome: "applied" };
     }
 
@@ -155,9 +166,9 @@ export async function createWorkspaceForUser(
     }
 
     const [gh] = await tx
-      .select({ id: githubConnections.id })
-      .from(githubConnections)
-      .where(eq(githubConnections.userId, target.id))
+      .select({ id: gitConnections.id })
+      .from(gitConnections)
+      .where(eq(gitConnections.userId, target.id))
       .limit(1);
 
     const fresh = {
@@ -171,8 +182,8 @@ export async function createWorkspaceForUser(
       awakeSince: null,
       lastCpuUsec: 0n,
       startFailures: 0,
-      // A GitHub account connected during onboarding is pushed into the workspace on its first start.
-      githubSyncPending: !!gh,
+      // Git accounts connected during onboarding is pushed into the workspace on its first start.
+      gitSyncPending: !!gh,
       dataKept: false,
       toolchainGeneration: 0,
       toolchainAppliedGeneration: 0,

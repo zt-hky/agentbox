@@ -17,6 +17,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { GIT_METHODS, GIT_PROVIDER_IDS } from "@agentbox/core/git";
 import { CHANNELS, REQUESTED_ACTIONS, RUN_STATUSES, TOOL_STATES } from "@agentbox/core/toolchain";
 
 const tstz = (name: string) => timestamp(name, { withTimezone: true });
@@ -257,7 +258,9 @@ export const workspaces = pgTable("workspaces", {
     .notNull()
     .default(sql`0`),
   startFailures: integer("start_failures").notNull().default(0),
-  githubSyncPending: boolean("github_sync_pending").notNull().default(false),
+  gitSyncPending: boolean("git_sync_pending").notNull().default(false),
+  // The workspace's own SSH public key (the private key never leaves the workspace); null until the first git sync.
+  sshPublicKey: text("ssh_public_key"),
   // The tenant home was kept when the workspace was deleted; re-creating reuses it (same slug and slot).
   dataKept: boolean("data_kept").notNull().default(false),
   // Toolchain (per-workspace runtimes and agent CLIs). A user change bumps `generation`; a run that
@@ -353,17 +356,39 @@ export const handoffCodes = pgTable("handoff_codes", {
   createdAt: createdAt(),
 });
 
-export const githubConnections = pgTable("github_connections", {
-  id: id(),
-  userId: userRef().unique(),
-  login: text("login").notNull(),
-  githubId: bigint("github_id", { mode: "bigint" }).notNull(),
-  tokenEnc: text("token_enc").notNull(),
-  scopes: text("scopes"),
-  createdAt: createdAt(),
-});
+// A user's linked git hosts (one row per user+host): OAuth tokens or pasted personal access tokens.
+export const gitConnections = pgTable(
+  "git_connections",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: GIT_PROVIDER_IDS }).notNull(),
+    host: text("host").notNull(),
+    method: text("method", { enum: GIT_METHODS }).notNull(),
+    login: text("login").notNull(),
+    email: text("email"),
+    providerUserId: text("provider_user_id"),
+    tokenEnc: text("token_enc").notNull(),
+    refreshTokenEnc: text("refresh_token_enc"),
+    expiresAt: tstz("expires_at"),
+    scopes: text("scopes"),
+    // Id of the workspace public key at the provider (set once the worker uploaded it).
+    sshKeyId: text("ssh_key_id"),
+    // known_hosts text for self-hosted hosts (ssh-keyscan at connect); pinned hosts ship theirs in core.
+    knownHosts: text("known_hosts"),
+    status: text("status", { enum: ["active", "error"] })
+      .notNull()
+      .default("active"),
+    lastError: text("last_error"),
+    createdAt: createdAt(),
+    updatedAt: tstz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("git_connections_user_host_uq").on(t.userId, t.host)],
+);
 
-// Agent CLI credentials the user pasted (one per env var), encrypted like github_connections.
+// Agent CLI credentials the user pasted (one per env var), encrypted like git_connections.
 export const agentKeys = pgTable(
   "agent_keys",
   {
@@ -482,7 +507,7 @@ export const JOB_TYPES = [
   "start_workspace",
   "stop_workspace",
   "delete_tenant",
-  "sync_github",
+  "sync_git",
   "sync_agent_keys",
   "copilot_login",
   "update_limits",

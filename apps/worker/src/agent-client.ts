@@ -10,11 +10,13 @@ import {
   workspaceLogResponseSchema,
   workspaceTopResponseSchema,
   statsResponseSchema,
+  putGitResponseSchema,
   type BuildImageRequest,
   type AgentKeysRequest,
   type BuildImageResponse,
   type CreateTenantRequest,
-  type GithubConnectRequest,
+  type PutGitRequest,
+  type PutGitResponse,
   type StartWorkspaceRequest,
   type StartWorkspaceResponse,
   type StatsResponse,
@@ -53,8 +55,8 @@ export interface AgentClient {
   syncAgentKeys(ws: string, req: AgentKeysRequest): Promise<void>;
   startWorkspace(ws: string, req: StartWorkspaceRequest): Promise<StartWorkspaceResponse>;
   stopWorkspace(ws: string): Promise<void>;
-  githubConnect(ws: string, req: GithubConnectRequest): Promise<void>;
-  githubDisconnect(ws: string): Promise<void>;
+  /** Push the full desired git state; the agent reconciles to it and returns the workspace's SSH public key. */
+  putGit(ws: string, req: PutGitRequest): Promise<PutGitResponse>;
   copilotLoginStart(ws: string): Promise<CopilotLoginState>;
   copilotLoginState(ws: string): Promise<CopilotLoginState>;
   copilotLoginCancel(ws: string): Promise<void>;
@@ -184,11 +186,8 @@ export function createAgentClient(opts: AgentClientOptions): AgentClient {
     async stopWorkspace(ws) {
       await call("POST", `/v1/workspaces/${seg(ws)}/stop`, {}, okResponseSchema);
     },
-    async githubConnect(ws, req) {
-      await call("POST", `/v1/workspaces/${seg(ws)}/github`, req, okResponseSchema);
-    },
-    async githubDisconnect(ws) {
-      await call("DELETE", `/v1/workspaces/${seg(ws)}/github`, undefined, okResponseSchema);
+    putGit(ws, req) {
+      return call("PUT", `/v1/workspaces/${seg(ws)}/git`, req, putGitResponseSchema);
     },
     copilotLoginStart(ws) {
       return call("POST", `/v1/workspaces/${seg(ws)}/copilot/login`, {}, copilotLoginStateSchema);

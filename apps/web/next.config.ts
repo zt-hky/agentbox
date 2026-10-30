@@ -16,6 +16,10 @@ const config: NextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "256kb" },
   },
+  // The Accounts page covers every git host now; the old GitHub-only path keeps working.
+  async redirects() {
+    return [{ source: "/settings/github", destination: "/settings/accounts", permanent: true }];
+  },
 };
 
 export default config;

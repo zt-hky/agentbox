@@ -5,6 +5,7 @@ import { createAgentClient } from "./agent-client.ts";
 import { loadConfig } from "./config.ts";
 import { startCycleLoop } from "./cycle.ts";
 import { createGateway } from "./gateway.ts";
+import { startGitRefreshLoop } from "./git.ts";
 import { JobRunner } from "./jobs.ts";
 import { startLatestLoop } from "./latest.ts";
 import { createLogger, errMessage } from "./log.ts";
@@ -44,6 +45,7 @@ async function main(): Promise<void> {
   const stopMetering = startMeteringLoop(ctx);
   const stopCycle = startCycleLoop(ctx);
   const stopLatest = startLatestLoop(ctx);
+  const stopGitRefresh = startGitRefreshLoop(ctx);
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
@@ -54,6 +56,7 @@ async function main(): Promise<void> {
     stopMetering();
     stopCycle();
     stopLatest();
+    stopGitRefresh();
     server.close();
     server.closeIdleConnections();
     const left = await runner.stop(SHUTDOWN_GRACE_MS);

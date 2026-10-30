@@ -1,4 +1,5 @@
 /** Runtime configuration, read lazily so `next build` never needs production env. */
+import { GIT_OAUTH, type GitOAuthProviderId } from "@agentbox/core/git";
 
 export function baseDomain(): string {
   return (process.env.AGENTBOX_BASE_DOMAIN?.trim() || "agentbox.io.vn").toLowerCase();
@@ -34,12 +35,12 @@ export function configuredProviders(): LoginProvider[] {
   return out;
 }
 
-export type GithubConnectConfig = {
+export type GitOAuthConfig = {
   clientId: string;
   clientSecret: string;
   /** Path (under the app origin) registered/accepted as the OAuth redirect URI. */
   callbackPath: string;
-  /** True when the sign-in OAuth App is reused; its grant also carries the user's sign-in. */
+  /** True when the sign-in OAuth App is reused; its grant also carries the user's sign-in (GitHub only). */
   shared: boolean;
 };
 
@@ -47,27 +48,35 @@ export const GITHUB_CONNECT_CALLBACK_PATH = "/api/github/callback";
 /** The sign-in app's exact registered callback; GitHub rejected a subdirectory of it in production. */
 export const GITHUB_SHARED_CALLBACK_PATH = "/api/auth/callback/github";
 
-/** Dedicated `GITHUB_CONNECT_*` app wins; else reuse the sign-in `GITHUB_CLIENT_*` app. */
-export function githubConnectConfig(): GithubConnectConfig | null {
-  const id = process.env.GITHUB_CONNECT_CLIENT_ID;
-  const secret = process.env.GITHUB_CONNECT_CLIENT_SECRET;
-  if (id && secret) {
-    return {
-      clientId: id,
-      clientSecret: secret,
-      callbackPath: GITHUB_CONNECT_CALLBACK_PATH,
-      shared: false,
-    };
+/** OAuth client for a provider's Connect flow, or null when the administrator has not configured it. */
+export function gitOAuthConfig(provider: GitOAuthProviderId): GitOAuthConfig | null {
+  if (provider === "github") {
+    // Dedicated `GITHUB_CONNECT_*` app wins; else reuse the sign-in `GITHUB_CLIENT_*` app.
+    const id = process.env.GITHUB_CONNECT_CLIENT_ID;
+    const secret = process.env.GITHUB_CONNECT_CLIENT_SECRET;
+    if (id && secret) {
+      return {
+        clientId: id,
+        clientSecret: secret,
+        callbackPath: GITHUB_CONNECT_CALLBACK_PATH,
+        shared: false,
+      };
+    }
+    const sharedId = process.env.GITHUB_CLIENT_ID;
+    const sharedSecret = process.env.GITHUB_CLIENT_SECRET;
+    if (sharedId && sharedSecret) {
+      return {
+        clientId: sharedId,
+        clientSecret: sharedSecret,
+        callbackPath: GITHUB_SHARED_CALLBACK_PATH,
+        shared: true,
+      };
+    }
+    return null;
   }
-  const sharedId = process.env.GITHUB_CLIENT_ID;
-  const sharedSecret = process.env.GITHUB_CLIENT_SECRET;
-  if (sharedId && sharedSecret) {
-    return {
-      clientId: sharedId,
-      clientSecret: sharedSecret,
-      callbackPath: GITHUB_SHARED_CALLBACK_PATH,
-      shared: true,
-    };
-  }
-  return null;
+  const spec = GIT_OAUTH[provider];
+  const id = spec.clientIdEnv ? process.env[spec.clientIdEnv] : undefined;
+  const secret = spec.clientSecretEnv ? process.env[spec.clientSecretEnv] : undefined;
+  if (!id || !secret || !spec.callbackPath) return null;
+  return { clientId: id, clientSecret: secret, callbackPath: spec.callbackPath, shared: false };
 }

@@ -30,15 +30,15 @@ export default async function OnboardingPage({
         <div className="space-y-1.5">
           <h1 className="text-title">Set up your workspace, {firstName}</h1>
           <p className="text-sm text-muted-foreground">
-            Four short steps: choose your languages and package managers, pick your agents and
-            sign them in, then we build the machine. You can change every choice later under Tools.
+            Four short steps: choose your languages and package managers, pick your agents and sign
+            them in, then we build the machine. You can change every choice later under Tools.
           </p>
         </div>
         <Wizard
           state={state}
           initialStep={initialStep}
-          githubError={error ?? null}
-          githubJustConnected={Boolean(connected)}
+          gitError={error ?? null}
+          gitConnected={connected ?? null}
         />
       </main>
     </div>

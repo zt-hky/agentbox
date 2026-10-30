@@ -1,43 +1,47 @@
-import { githubScopeString } from "@agentbox/core/accounts";
+import { GIT_OAUTH, gitOAuthScopes, type GitOAuthProviderId } from "@agentbox/core/git";
 import { timingSafeEqual } from "node:crypto";
-import { appOrigin, type GithubConnectConfig } from "./env";
+import { appOrigin, type GitOAuthConfig } from "./env";
 
-export const GH_STATE_COOKIE = "__Host-abx_gh_state";
-export const GH_STATE_MAX_AGE_S = 600;
+export const GIT_STATE_COOKIE = "__Host-abx_git_state";
+export const GIT_STATE_MAX_AGE_S = 600;
 /** Where to return after the OAuth round trip; only the onboarding wizard sets it. */
-export const GH_NEXT_COOKIE = "__Host-abx_gh_next";
+export const GIT_NEXT_COOKIE = "__Host-abx_git_next";
 export const ONBOARDING_RETURN = "/onboarding";
 export const WORKFLOW_PARAM = "workflow";
 
-export function callbackUrl(cfg: Pick<GithubConnectConfig, "callbackPath">): string {
+export function callbackUrl(cfg: Pick<GitOAuthConfig, "callbackPath">): string {
   return `${appOrigin()}${cfg.callbackPath}`;
 }
 
-/** `allowWorkflow` is the opt-in for editing workflow files; everything else is the minimum for git + gh. */
+/** `allowWorkflow` is the opt-in for GitHub workflow files; everything else is the minimum for git (+ gh). */
 export function authorizeUrl(
-  cfg: Pick<GithubConnectConfig, "clientId" | "callbackPath">,
+  provider: GitOAuthProviderId,
+  cfg: Pick<GitOAuthConfig, "clientId" | "callbackPath">,
   state: string,
   allowWorkflow = false,
 ): string {
-  const u = new URL("https://github.com/login/oauth/authorize");
+  const u = new URL(GIT_OAUTH[provider].authorizeUrl);
   u.searchParams.set("client_id", cfg.clientId);
-  u.searchParams.set("scope", githubScopeString(allowWorkflow));
+  // Bitbucket takes its scopes from the consumer configuration.
+  const scope = provider === "bitbucket" ? null : gitOAuthScopes(provider, allowWorkflow);
+  if (scope) u.searchParams.set("scope", scope);
   u.searchParams.set("state", state);
   u.searchParams.set("redirect_uri", callbackUrl(cfg));
+  if (provider !== "github") u.searchParams.set("response_type", "code");
   return u.toString();
 }
 
-export function stateCookie(value: string, maxAge = GH_STATE_MAX_AGE_S): string {
-  return `${GH_STATE_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+export function stateCookie(value: string, maxAge = GIT_STATE_MAX_AGE_S): string {
+  return `${GIT_STATE_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
 }
 
-export function nextCookie(value: string, maxAge = GH_STATE_MAX_AGE_S): string {
-  return `${GH_NEXT_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+export function nextCookie(value: string, maxAge = GIT_STATE_MAX_AGE_S): string {
+  return `${GIT_NEXT_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
 }
 
 /** The return page for a Connect round trip: onboarding when it started there, else Accounts. */
 export function returnBase(nextValue: string | null): string {
-  return nextValue === ONBOARDING_RETURN ? ONBOARDING_RETURN : "/settings/github";
+  return nextValue === ONBOARDING_RETURN ? ONBOARDING_RETURN : "/settings/accounts";
 }
 
 export function readCookie(header: string | null, name: string): string | null {
@@ -62,7 +66,7 @@ export function isConnectCallback(request: Request): boolean {
   const url = new URL(request.url);
   return statesMatch(
     url.searchParams.get("state"),
-    readCookie(request.headers.get("cookie"), GH_STATE_COOKIE),
+    readCookie(request.headers.get("cookie"), GIT_STATE_COOKIE),
   );
 }
 
@@ -75,48 +79,12 @@ export function redirectResponse(location: string, cookies: string[] = []): Resp
 
 const TIMEOUT_MS = 10_000;
 
-export async function exchangeCode(
-  cfg: Pick<GithubConnectConfig, "clientId" | "clientSecret" | "callbackPath">,
-  code: string,
-): Promise<{ accessToken: string; scope: string }> {
-  const res = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: cfg.clientId,
-      client_secret: cfg.clientSecret,
-      code,
-      redirect_uri: callbackUrl(cfg),
-    }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  const body = (await res.json()) as { access_token?: string; scope?: string; error?: string };
-  if (!res.ok || !body.access_token)
-    throw new Error(body.error ?? `token exchange failed (${res.status})`);
-  return { accessToken: body.access_token, scope: body.scope ?? "" };
-}
-
-export async function fetchGithubUser(token: string): Promise<{ id: number; login: string }> {
-  const res = await fetch("https://api.github.com/user", {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "User-Agent": "agentbox",
-    },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`GET /user failed (${res.status})`);
-  const body = (await res.json()) as { id?: number; login?: string };
-  if (typeof body.id !== "number" || !body.login) throw new Error("unexpected GET /user response");
-  return { id: body.id, login: body.login };
-}
-
-function basicAuth(cfg: Pick<GithubConnectConfig, "clientId" | "clientSecret">): string {
+function basicAuth(cfg: Pick<GitOAuthConfig, "clientId" | "clientSecret">): string {
   return Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString("base64");
 }
 
 async function deleteApplication(
-  cfg: Pick<GithubConnectConfig, "clientId" | "clientSecret">,
+  cfg: Pick<GitOAuthConfig, "clientId" | "clientSecret">,
   kind: "grant" | "token",
   token: string,
 ): Promise<void> {
@@ -139,7 +107,7 @@ async function deleteApplication(
  * Best effort: callers ignore failures.
  */
 export async function revokeConnection(
-  cfg: Pick<GithubConnectConfig, "clientId" | "clientSecret" | "shared">,
+  cfg: Pick<GitOAuthConfig, "clientId" | "clientSecret" | "shared">,
   token: string,
 ): Promise<void> {
   await deleteApplication(cfg, cfg.shared ? "token" : "grant", token);

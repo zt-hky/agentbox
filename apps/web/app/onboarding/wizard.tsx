@@ -20,13 +20,13 @@ const STEPS: { id: OnboardingStep; label: string; detail: string }[] = [
 export function Wizard({
   state,
   initialStep,
-  githubError,
-  githubJustConnected,
+  gitError,
+  gitConnected,
 }: {
   state: OnboardingState;
   initialStep: OnboardingStep;
-  githubError: string | null;
-  githubJustConnected: boolean;
+  gitError: string | null;
+  gitConnected: string | null;
 }) {
   const [step, setStep] = useState<OnboardingStep>(initialStep);
   const [toolIds, setToolIds] = useState<ToolId[]>(state.selectedToolIds);
@@ -76,9 +76,9 @@ export function Wizard({
       ) : null}
       {step === "accounts" ? (
         <AccountsStep
-          github={state.github}
-          githubError={githubError}
-          githubJustConnected={githubJustConnected}
+          git={state.git}
+          gitError={gitError}
+          gitConnected={gitConnected}
           agents={state.agents.filter((a) => agentIds.includes(a.toolId))}
           onBack={() => setStep("agents")}
           onNext={() => setStep("create")}

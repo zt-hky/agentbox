@@ -7,7 +7,7 @@ import {
   createTenantRequestSchema,
   agentKeysRequestSchema,
   deleteTenantQuerySchema,
-  githubConnectRequestSchema,
+  putGitRequestSchema,
   imageParamsSchema,
   jobParamsSchema,
   logQuerySchema,
@@ -38,8 +38,7 @@ import {
   copilotLogoutOp,
   copilotProviderOp,
   agentKeysOp,
-  githubConnect,
-  githubDisconnect,
+  putGit,
   startWorkspace,
   stopWorkspace,
   workspaceLogs,
@@ -118,12 +117,11 @@ export const routes: Route[] = [
     },
   },
   {
-    method: "POST",
-    pattern: /^\/v1\/workspaces\/([^/]+)\/github$/,
+    method: "PUT",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/git$/,
     handler: async (c) => {
       const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
-      await githubConnect(ws, parse(githubConnectRequestSchema, await c.body()));
-      return OK;
+      return putGit(ws, parse(putGitRequestSchema, await c.body()));
     },
   },
   {
@@ -132,14 +130,6 @@ export const routes: Route[] = [
     handler: async (c) => {
       const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
       await agentKeysOp(ws, parse(agentKeysRequestSchema, await c.body()));
-      return OK;
-    },
-  },
-  {
-    method: "DELETE",
-    pattern: /^\/v1\/workspaces\/([^/]+)\/github$/,
-    handler: async (c) => {
-      await githubDisconnect(parse(wsParamsSchema, { ws: c.params["0"] }).ws);
       return OK;
     },
   },

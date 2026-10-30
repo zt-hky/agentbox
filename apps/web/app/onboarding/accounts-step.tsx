@@ -2,19 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { Check } from "lucide-react";
+import { GitAccounts } from "@/components/git-accounts";
 import { Mono } from "@/components/mono";
 import { Notice } from "@/components/notice";
-import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { OnboardingAgentOption, OnboardingState } from "@/lib/onboarding";
 import { removeAgentKeyAction, saveAgentKeyAction } from "./actions";
-
-const GITHUB_ERRORS: Record<string, string> = {
-  state: "GitHub sign-in expired or came from another browser tab. Connect again.",
-  exchange: "GitHub did not finish the connection. Try again in a moment.",
-};
 
 function KeyField({
   agent,
@@ -100,18 +95,18 @@ function KeyField({
   );
 }
 
-/** Step 3: GitHub connection and per-agent credentials. Everything here is skippable. */
+/** Step 3: git hosts and per-agent credentials. Everything here is skippable. */
 export function AccountsStep({
-  github,
-  githubError,
-  githubJustConnected,
+  git,
+  gitError,
+  gitConnected,
   agents,
   onBack,
   onNext,
 }: {
-  github: OnboardingState["github"];
-  githubError: string | null;
-  githubJustConnected: boolean;
+  git: OnboardingState["git"];
+  gitError: string | null;
+  gitConnected: string | null;
   agents: OnboardingAgentOption[];
   onBack: () => void;
   onNext: () => void;
@@ -128,31 +123,15 @@ export function AccountsStep({
         </p>
       </div>
 
-      <div className="rounded-lg border bg-card p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-base">GitHub</h3>
-            <p className="text-meta text-muted-foreground">
-              For git push and pull over HTTPS and the gh CLI.
-            </p>
-          </div>
-          {github.connected ? (
-            <StatusBadge status="active" label={`Connected as ${github.login ?? "GitHub"}`} />
-          ) : github.configured ? (
-            <Button asChild>
-              <a href={github.connectUrl}>Connect GitHub</a>
-            </Button>
-          ) : (
-            <StatusBadge status="none" label="Not available" />
-          )}
+      <div className="space-y-2">
+        <div>
+          <h3 className="text-base">Git hosts</h3>
+          <p className="text-meta text-muted-foreground">
+            Clone, pull and push over HTTPS and SSH without more setup. Connect GitHub, GitLab,
+            Bitbucket or your own host.
+          </p>
         </div>
-        {githubError ? (
-          <Notice tone="error" className="mt-3">
-            {GITHUB_ERRORS[githubError] ?? "The connection failed. Try again."}
-          </Notice>
-        ) : githubJustConnected ? (
-          <Notice className="mt-3">GitHub is connected.</Notice>
-        ) : null}
+        <GitAccounts view={git} next="onboarding" error={gitError} connected={gitConnected} />
       </div>
 
       {withKeys.map((agent) => (

@@ -7,15 +7,21 @@ import {
   type ToolId,
   type ToolState,
 } from "@agentbox/core/toolchain";
-import { githubConnections, toolchainRuns, user, workspaceTools, workspaces } from "@agentbox/db/schema";
+import { toolchainRuns, user, workspaceTools, workspaces } from "@agentbox/db/schema";
 import { writeAudit } from "./audit";
 import type { Db, DbLike } from "./db-types";
-import { baseDomain, encryptionKey, githubConnectConfig } from "./env";
+import { baseDomain, encryptionKey } from "./env";
+import { loadGitAccountsView, type GitAccountsView } from "./git-accounts";
 import { UserError } from "./errors";
 import { listAgentKeys } from "./agent-keys";
 import { resolveSelection, selectableEntries } from "./onboarding-selection";
 import { loadToolchainSettings } from "@agentbox/db/toolchain";
-import { channelOptions, channelValue, versionChoices, type VersionOption } from "./toolchain/version-options";
+import {
+  channelOptions,
+  channelValue,
+  versionChoices,
+  type VersionOption,
+} from "./toolchain/version-options";
 import { OPEN_RUN_STATUSES, defaultFor, loadLatestMap, tailLog } from "./toolchain/view";
 
 export type OnboardingStep = "tools" | "agents" | "accounts" | "create";
@@ -67,7 +73,7 @@ export interface OnboardingState {
   selectedToolIds: ToolId[];
   selectedManagerIds: ToolId[];
   selectedAgentIds: ToolId[];
-  github: { configured: boolean; connected: boolean; login: string | null; connectUrl: string };
+  git: GitAccountsView;
   workspace: { slug: string; status: string; keptData: boolean } | null;
   slug: { value: string; locked: boolean };
   baseDomain: string;
@@ -91,12 +97,12 @@ export async function loadOnboardingState(
     loadLatestMap(database),
   ]);
   const saved = await listAgentKeys(database, userId, opts.encryptionKey ?? encryptionKey());
-  const [gh] = await database
-    .select({ login: githubConnections.login })
-    .from(githubConnections)
-    .where(eq(githubConnections.userId, userId))
+  const git = await loadGitAccountsView(database, userId);
+  const [ws] = await database
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.userId, userId))
     .limit(1);
-  const [ws] = await database.select().from(workspaces).where(eq(workspaces.userId, userId)).limit(1);
 
   const toOption = (e: CatalogEntry, picked: ToolId[]) => ({
     toolId: e.id,
@@ -160,12 +166,7 @@ export async function loadOnboardingState(
     selectedToolIds: selection.tools,
     selectedManagerIds: selection.packageManagers,
     selectedAgentIds: selection.agents,
-    github: {
-      configured: githubConnectConfig() !== null,
-      connected: !!gh,
-      login: gh?.login ?? null,
-      connectUrl: `/api/github/connect?next=${ONBOARDING_PATH}`,
-    },
+    git,
     workspace: ws ? { slug: ws.slug, status: ws.status, keptData: ws.dataKept } : null,
     slug: {
       value: live || ws?.dataKept ? (ws?.slug ?? "") : (u.reservedSlug ?? ws?.slug ?? ""),
@@ -178,13 +179,7 @@ export async function loadOnboardingState(
 export type OnboardingStage = "provision" | "start" | "tools" | "ready" | "error";
 export type StageState = "pending" | "active" | "done" | "failed";
 export type ProgressToolState =
-  | "pending"
-  | "installing"
-  | "installed"
-  | "failed"
-  | "idle"
-  | "external"
-  | "removing";
+  "pending" | "installing" | "installed" | "failed" | "idle" | "external" | "removing";
 
 export interface OnboardingProgress {
   stage: OnboardingStage;
@@ -225,7 +220,11 @@ export async function loadOnboardingProgress(
   database: DbLike,
   userId: string,
 ): Promise<OnboardingProgress> {
-  const [ws] = await database.select().from(workspaces).where(eq(workspaces.userId, userId)).limit(1);
+  const [ws] = await database
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.userId, userId))
+    .limit(1);
   const empty: OnboardingProgress = {
     stage: "provision",
     stages: [
@@ -277,7 +276,10 @@ export async function loadOnboardingProgress(
   const steps = (current?.steps as { status?: string }[] | null) ?? [];
   const planSteps = (current?.plan as { steps?: unknown[] } | null)?.steps?.length ?? 0;
   const settled = Array.isArray(steps) ? steps.filter((s) => s.status !== "running").length : 0;
-  const logLines = tailLog(current?.log ?? null).split("\n").slice(-LOG_TICKER_LINES).join("\n");
+  const logLines = tailLog(current?.log ?? null)
+    .split("\n")
+    .slice(-LOG_TICKER_LINES)
+    .join("\n");
 
   const up = ws.status === "running" || ws.status === "sleeping";
   const canFinish = up && !ws.toolchainPending && ws.toolchainGeneration > 0 && !open;

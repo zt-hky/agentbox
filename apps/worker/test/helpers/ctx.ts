@@ -14,6 +14,7 @@ export const testConfig: Config = {
   agentSocket: "/nonexistent",
   agentToken: TOKEN,
   encryptionKey: ENC_KEY,
+  gitOAuth: {},
   logLevel: "error",
 };
 

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { encrypt } from "@agentbox/core";
 import {
   agentKeys,
-  githubConnections,
+  gitConnections,
   images,
   jobs,
   workspaceEvents,
@@ -36,11 +36,7 @@ beforeEach(async () => {
   clock.set(new Date("2026-03-10T12:00:00.000Z"));
   await resetDb(t.db);
   agent.calls.length = 0;
-  for (const r of [
-    "POST /v1/workspaces/alice/start",
-    "POST /v1/workspaces/alice/github",
-    "DELETE /v1/images/" + IMAGE_ID,
-  ]) {
+  for (const r of ["POST /v1/workspaces/alice/start", "DELETE /v1/images/" + IMAGE_ID]) {
     agent.on(r, () => ({
       json: r.includes("start") ? { cgroupPath: "c", startedAt: "now" } : { ok: true },
     }));
@@ -80,15 +76,13 @@ async function enqueue(
   return j!.id;
 }
 async function activeImage() {
-  await t.db
-    .insert(images)
-    .values({
-      version: nextImageVersion(),
-      imageId: IMAGE_ID,
-      rootfsPath: "/r",
-      t3Ref: "main",
-      status: "active",
-    });
+  await t.db.insert(images).values({
+    version: nextImageVersion(),
+    imageId: IMAGE_ID,
+    rootfsPath: "/r",
+    t3Ref: "main",
+    status: "active",
+  });
 }
 
 describe("job runner: retry and backoff", () => {
@@ -230,13 +224,18 @@ describe("job handlers", () => {
     await activeImage();
     const w = await seedWorld(t.db, {
       status: "sleeping",
-      workspace: { githubSyncPending: true, startFailures: 2 },
+      workspace: { gitSyncPending: true, startFailures: 2 },
     });
-    await t.db.insert(githubConnections).values({
+    await t.db.insert(gitConnections).values({
       userId: w.userId,
+      provider: "github",
+      host: "github.com",
+      method: "oauth",
       login: "octo",
-      githubId: 42n,
+      email: "42+octo@users.noreply.github.com",
+      providerUserId: "42",
       tokenEnc: encrypt("gho_secret", ENC_KEY),
+      scopes: "repo",
     });
     const id = await enqueue("start_workspace", w.workspaceId);
     await runAll();
@@ -258,15 +257,22 @@ describe("job handlers", () => {
       status: "running",
       imageId: IMAGE_ID,
       startFailures: 0,
-      githubSyncPending: false,
+      gitSyncPending: false,
     });
     expect(row.awakeSince!.getTime()).toBe(clock.now().getTime());
     expect(row.lastActivityAt!.getTime()).toBe(clock.now().getTime());
     expect((await events(w.workspaceId)).map((e) => e.type)).toEqual(["started"]);
-    expect(agent.callsTo("POST /v1/workspaces/alice/github")[0]!.body).toEqual({
-      token: "gho_secret",
-      login: "octo",
-      email: "42+octo@users.noreply.github.com",
+    expect(agent.callsTo("PUT /v1/workspaces/alice/git")[0]!.body).toEqual({
+      connections: [
+        {
+          provider: "github",
+          host: "github.com",
+          login: "octo",
+          token: "gho_secret",
+          username: "octo",
+        },
+      ],
+      identity: { name: "octo", email: "42+octo@users.noreply.github.com" },
     });
   });
 
@@ -460,35 +466,37 @@ describe("job handlers", () => {
     expect(await ws(w.workspaceId)).toMatchObject({ status: "deleted", dataKept: false });
   });
 
-  it("sync_github: sleeping sets the pending flag; running connects or disconnects; 409 stays pending", async () => {
+  it("sync_git: sleeping sets the pending flag; running pushes the desired state; 409 stays pending", async () => {
     const sleeping = await seedWorld(t.db, { status: "sleeping" });
-    await enqueue("sync_github", sleeping.workspaceId);
+    await enqueue("sync_git", sleeping.workspaceId);
     await runAll();
-    expect((await ws(sleeping.workspaceId)).githubSyncPending).toBe(true);
+    expect((await ws(sleeping.workspaceId)).gitSyncPending).toBe(true);
     expect(agent.calls).toHaveLength(0);
 
     await t.db.update(workspaces).set({ status: "running" });
     await t.db.delete(jobs);
-    await enqueue("sync_github", sleeping.workspaceId);
+    await enqueue("sync_git", sleeping.workspaceId);
     await runAll();
-    expect(agent.callsTo("DELETE /v1/workspaces/alice/github")).toHaveLength(1);
-    expect((await ws(sleeping.workspaceId)).githubSyncPending).toBe(false);
+    expect(agent.callsTo("PUT /v1/workspaces/alice/git")[0]!.body).toEqual({ connections: [] });
+    expect((await ws(sleeping.workspaceId)).gitSyncPending).toBe(false);
 
-    await t.db.insert(githubConnections).values({
+    await t.db.insert(gitConnections).values({
       userId: sleeping.userId,
+      provider: "gitea",
+      host: "git.example.com",
+      method: "token",
       login: "octo",
-      githubId: 1n,
       tokenEnc: encrypt("tok", ENC_KEY),
     });
-    agent.on("POST /v1/workspaces/alice/github", {
+    agent.on("PUT /v1/workspaces/alice/git", {
       status: 409,
       json: { error: "container not running" },
     });
     await t.db.delete(jobs);
-    const id = await enqueue("sync_github", sleeping.workspaceId);
+    const id = await enqueue("sync_git", sleeping.workspaceId);
     await runAll();
     expect((await job(id)).status).toBe("done");
-    expect((await ws(sleeping.workspaceId)).githubSyncPending).toBe(true);
+    expect((await ws(sleeping.workspaceId)).gitSyncPending).toBe(true);
   });
 
   it("update_limits PUTs plan limits", async () => {

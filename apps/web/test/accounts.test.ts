@@ -8,19 +8,19 @@ import {
 } from "@agentbox/core/accounts";
 import {
   auditLog,
-  githubConnections,
+  gitConnections,
   jobs,
   workspaceIntegrations,
   workspaces,
 } from "@agentbox/db/schema";
 import {
   cancelOrSignOutCopilot,
-  disconnectGithubAccount,
+  disconnectGitConnection,
   getCopilotView,
   requestCopilotLogin,
 } from "../lib/accounts";
 import { UserError } from "../lib/errors";
-import { authorizeUrl } from "../lib/github";
+import { authorizeUrl } from "../lib/git-oauth";
 import { createTestDb, seedUser, type TestDb } from "./helpers/db";
 
 let t: TestDb;
@@ -67,15 +67,15 @@ const audits = async (action: string) =>
   (await t.db.select().from(auditLog).where(eq(auditLog.action, action))).length;
 
 describe("GitHub scopes", () => {
-  it("default scopes are repo read:org gist; workflow is an explicit opt-in", () => {
-    expect(githubScopeString(false)).toBe("repo read:org gist");
-    expect(githubScopeString(true)).toBe("repo read:org gist workflow");
+  it("default scopes are repo read:org gist write:public_key; workflow is an explicit opt-in", () => {
+    expect(githubScopeString(false)).toBe("repo read:org gist write:public_key");
+    expect(githubScopeString(true)).toBe("repo read:org gist write:public_key workflow");
     expect([...GITHUB_BASE_SCOPES]).not.toContain(GITHUB_WORKFLOW_SCOPE);
     const cfg = { clientId: "cid", callbackPath: "/api/github/callback" };
-    const plain = new URL(authorizeUrl(cfg, "st"));
-    expect(plain.searchParams.get("scope")).toBe("repo read:org gist");
-    const opt = new URL(authorizeUrl(cfg, "st", true));
-    expect(opt.searchParams.get("scope")).toBe("repo read:org gist workflow");
+    const plain = new URL(authorizeUrl("github", cfg, "st"));
+    expect(plain.searchParams.get("scope")).toBe("repo read:org gist write:public_key");
+    const opt = new URL(authorizeUrl("github", cfg, "st", true));
+    expect(opt.searchParams.get("scope")).toBe("repo read:org gist write:public_key workflow");
   });
 
   it("reads granted scopes in GitHub's comma form and ours", () => {
@@ -139,17 +139,17 @@ describe("cancelOrSignOutCopilot", () => {
     await requestCopilotLogin(t.db, { userId, ip });
     await cancelOrSignOutCopilot(t.db, { userId, ip });
     expect((await integration(ws.id))!.status).toBe("cancelling");
-    expect(await jobTypes(ws.id)).not.toContain("sync_github");
+    expect(await jobTypes(ws.id)).not.toContain("sync_git");
   });
 
-  it("a signed-in Copilot becomes signing_out and queues sync_github (works asleep too)", async () => {
+  it("a signed-in Copilot becomes signing_out and queues sync_git (works asleep too)", async () => {
     const { userId, ws } = await seed("sleeping");
     await t.db
       .insert(workspaceIntegrations)
       .values({ workspaceId: ws.id, kind: "copilot", status: "signed_in" });
     await cancelOrSignOutCopilot(t.db, { userId, ip });
     expect((await integration(ws.id))!.status).toBe("signing_out");
-    expect(await jobTypes(ws.id)).toEqual(["sync_github"]);
+    expect(await jobTypes(ws.id)).toEqual(["sync_git"]);
     expect(await audits("copilot.signed_out")).toBeGreaterThan(0);
   });
 
@@ -160,42 +160,77 @@ describe("cancelOrSignOutCopilot", () => {
   });
 });
 
-describe("disconnectGithubAccount", () => {
-  const connect = (userId: string) =>
-    t.db
-      .insert(githubConnections)
-      .values({ userId, login: "octo", githubId: 1n, tokenEnc: "enc", scopes: "repo" });
+describe("disconnectGitConnection", () => {
+  const connect = async (
+    userId: string,
+    host = "github.com",
+    provider: "github" | "gitea" = "github",
+  ) =>
+    (
+      await t.db
+        .insert(gitConnections)
+        .values({
+          userId,
+          provider,
+          host,
+          method: provider === "github" ? "oauth" : "token",
+          login: "octo",
+          tokenEnc: "enc",
+          scopes: "repo",
+        })
+        .returning({ id: gitConnections.id })
+    )[0]!.id;
 
   it("removes the link, queues the reverse-state sync and marks Copilot for sign-out", async () => {
     const { userId, ws } = await seed("sleeping");
-    await connect(userId);
+    const connectionId = await connect(userId);
     await t.db
       .insert(workspaceIntegrations)
       .values({ workspaceId: ws.id, kind: "copilot", status: "signed_in" });
-    const conn = await disconnectGithubAccount(t.db, { userId, ip });
+    const conn = await disconnectGitConnection(t.db, { userId, connectionId, ip });
     expect(conn?.login).toBe("octo");
     expect(
-      await t.db.select().from(githubConnections).where(eq(githubConnections.userId, userId)),
+      await t.db.select().from(gitConnections).where(eq(gitConnections.userId, userId)),
     ).toHaveLength(0);
     expect((await integration(ws.id))!.status).toBe("signing_out");
-    expect(await jobTypes(ws.id)).toEqual(["sync_github"]);
-    expect(await audits("github.disconnected")).toBeGreaterThan(0);
+    expect(await jobTypes(ws.id)).toEqual(["sync_git"]);
+    expect(await audits("git.disconnected")).toBeGreaterThan(0);
   });
 
-  it("leaves a workspace without any Copilot row alone and is a no-op without a link", async () => {
+  it("leaves a workspace without any Copilot row alone and is a no-op for an unknown id", async () => {
     const { userId, ws } = await seed("running");
-    expect(await disconnectGithubAccount(t.db, { userId, ip })).toBeNull();
-    await connect(userId);
-    await disconnectGithubAccount(t.db, { userId, ip });
+    const unknown = "00000000-0000-4000-8000-000000000000";
+    expect(await disconnectGitConnection(t.db, { userId, connectionId: unknown, ip })).toBeNull();
+    const connectionId = await connect(userId);
+    await disconnectGitConnection(t.db, { userId, connectionId, ip });
     expect(await integration(ws.id)).toBeUndefined();
-    expect(await jobTypes(ws.id)).toEqual(["sync_github"]);
+    expect(await jobTypes(ws.id)).toEqual(["sync_git"]);
+  });
+
+  it("cannot remove another user's connection", async () => {
+    const a = await seed("running");
+    const b = await seed("running");
+    const connectionId = await connect(a.userId);
+    expect(await disconnectGitConnection(t.db, { userId: b.userId, connectionId, ip })).toBeNull();
+    expect(await jobTypes(a.ws.id)).toEqual([]);
+  });
+
+  it("a non-GitHub host leaves Copilot alone", async () => {
+    const { userId, ws } = await seed("running");
+    await t.db
+      .insert(workspaceIntegrations)
+      .values({ workspaceId: ws.id, kind: "copilot", status: "signed_in" });
+    const connectionId = await connect(userId, "git.example.com", "gitea");
+    await disconnectGitConnection(t.db, { userId, connectionId, ip });
+    expect((await integration(ws.id))!.status).toBe("signed_in");
+    expect(await jobTypes(ws.id)).toEqual(["sync_git"]);
   });
 
   it("a live Copilot sign-in is cancelled, not signed out", async () => {
     const { userId, ws } = await seed("running");
-    await connect(userId);
+    const connectionId = await connect(userId);
     await requestCopilotLogin(t.db, { userId, ip });
-    await disconnectGithubAccount(t.db, { userId, ip });
+    await disconnectGitConnection(t.db, { userId, connectionId, ip });
     expect((await integration(ws.id))!.status).toBe("cancelling");
   });
 });
