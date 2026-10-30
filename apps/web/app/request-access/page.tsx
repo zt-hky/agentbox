@@ -8,7 +8,8 @@ import { signOut } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 import { latestRequestFor } from "@/lib/queries";
 import { baseDomain } from "@/lib/env";
-import { slugFromEmail } from "@/lib/slug";
+import { db } from "@agentbox/db/client";
+import { suggestAvailableSlug } from "@/lib/slug-taken";
 import { requireUser } from "@/lib/session";
 import { ApprovalWatcher, RequestForm } from "./request-form";
 
@@ -61,7 +62,7 @@ export default async function RequestAccessPage() {
   const initialSlug =
     latest?.status === "pending" && latest.requestedSlug
       ? latest.requestedSlug
-      : slugFromEmail(session.user.email);
+      : await suggestAvailableSlug(db, { email: session.user.email, userId: session.user.id });
   const domain = baseDomain();
   const firstName = session.user.name.split(" ")[0] || session.user.name;
 

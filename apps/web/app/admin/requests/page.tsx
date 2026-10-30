@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { Section } from "@/components/section";
 import { baseDomain } from "@/lib/env";
 import { planOptions } from "@/lib/queries";
-import { slugFromEmail } from "@/lib/slug";
+import { suggestAvailableSlug } from "@/lib/slug-taken";
 import { DecidedTable, type DecidedRow } from "./decided-table";
 import { RequestsTable, type AwaitingRow } from "./requests-table";
 
@@ -37,18 +37,24 @@ export default async function RequestsPage() {
       .limit(20),
     planOptions(),
   ]);
-  const rows: AwaitingRow[] = awaiting
-    .map(({ u, r }) => ({
-      userId: u.id,
-      userName: u.name,
-      email: u.email,
-      accessStatus: u.accessStatus,
-      requestId: r?.id ?? null,
-      message: r?.message ?? null,
-      since: (r?.createdAt ?? u.createdAt).toISOString(),
-      suggestedSlug: r?.requestedSlug ?? slugFromEmail(u.email),
-    }))
-    .sort((a, b) => (STATUS_ORDER[a.accessStatus] ?? 9) - (STATUS_ORDER[b.accessStatus] ?? 9));
+  const rows: AwaitingRow[] = (
+    await Promise.all(
+      awaiting.map(async ({ u, r }) => ({
+        userId: u.id,
+        userName: u.name,
+        email: u.email,
+        accessStatus: u.accessStatus,
+        requestId: r?.id ?? null,
+        message: r?.message ?? null,
+        since: (r?.createdAt ?? u.createdAt).toISOString(),
+        suggestedSlug: await suggestAvailableSlug(db, {
+          email: u.email,
+          userId: u.id,
+          requestedSlug: r?.requestedSlug,
+        }),
+      })),
+    )
+  ).sort((a, b) => (STATUS_ORDER[a.accessStatus] ?? 9) - (STATUS_ORDER[b.accessStatus] ?? 9));
   const pendingCount = rows.filter((r) => r.accessStatus === "pending").length;
 
   const decidedRows: DecidedRow[] = decided.map(({ r, u }) => ({

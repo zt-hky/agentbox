@@ -19,7 +19,7 @@ import { formatCredits } from "@/lib/money";
 import { planStatus, gateMessage } from "@/lib/plan-status";
 import { billingDisplay, planOptions } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
-import { slugFromEmail } from "@/lib/slug";
+import { suggestAvailableSlug } from "@/lib/slug-taken";
 import { loadBalance, loadSubscription } from "@/lib/user-data";
 import {
   AccessControl,
@@ -43,6 +43,11 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
       .where(and(eq(accessRequests.userId, id), eq(accessRequests.status, "pending")))
       .limit(1)
   )[0];
+  const suggestedSlug = await suggestAvailableSlug(db, {
+    email: target.email,
+    userId: target.id,
+    requestedSlug: pendingRequest?.requestedSlug,
+  });
 
   const [sub, balance, display, ws, ledger, plans] = await Promise.all([
     loadSubscription(id),
@@ -157,7 +162,7 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
                 target={{
                   userId: target.id,
                   email: target.email,
-                  suggestedSlug: pendingRequest?.requestedSlug ?? slugFromEmail(target.email),
+                  suggestedSlug,
                 }}
                 plans={plans.options}
                 defaultPlanId={plans.defaultPlanId}

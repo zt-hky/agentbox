@@ -14,7 +14,7 @@ import {
 } from "@agentbox/db/schema";
 import { grantAccess, openAccessRequest, recreateWorkspace } from "../lib/approve";
 import { createWorkspaceForUser } from "../lib/workspace-create";
-import { checkSlugAvailable } from "../lib/slug-taken";
+import { checkSlugAvailable, suggestAvailableSlug } from "../lib/slug-taken";
 import { UserError } from "../lib/errors";
 import { createTestDb, seedAdmin, seedRequester, seedUser, type TestDb } from "./helpers/db";
 
@@ -109,9 +109,9 @@ describe("grantAccess", () => {
   it("gives an already-active account a plan and slug, without inventing a request", async () => {
     const userId = await seedUser(t.db, "boot@example.com", "active");
     await grantAccess(t.db, input(userId, "boot"));
-    expect(
-      (await t.db.select().from(user).where(eq(user.id, userId)))[0]!.reservedSlug,
-    ).toBe("boot");
+    expect((await t.db.select().from(user).where(eq(user.id, userId)))[0]!.reservedSlug).toBe(
+      "boot",
+    );
     expect(
       await t.db.select().from(accessRequests).where(eq(accessRequests.userId, userId)),
     ).toHaveLength(0);
@@ -190,6 +190,27 @@ describe("checkSlugAvailable", () => {
     });
     expect(await checkSlugAvailable(t.db, "wanted", a.userId)).toEqual({ ok: true });
     expect(await checkSlugAvailable(t.db, "freeone", b.userId)).toEqual({ ok: true });
+  });
+
+  it("suggests a free slug when another user with the same email name took it", async () => {
+    const first = await seedRequester(t.db, "same.name@galaxy.example");
+    await grantAccess(t.db, input(first.userId, "samename"));
+    const second = await seedRequester(t.db, "same.name@vikki.example");
+    expect(
+      await suggestAvailableSlug(t.db, { email: "same.name@vikki.example", userId: second.userId }),
+    ).toBe("samenamevikki");
+    await grantAccess(t.db, input(second.userId, "samenamevikki"));
+    const third = await seedRequester(t.db, "same.name@vikki.example2");
+    expect(
+      await suggestAvailableSlug(t.db, { email: "same.name@vikki.example2", userId: third.userId }),
+    ).toBe("samename2");
+    expect(
+      await suggestAvailableSlug(t.db, {
+        email: "same.name@vikki.example2",
+        userId: third.userId,
+        requestedSlug: "mine",
+      }),
+    ).toBe("mine");
   });
 
   it("grantAccess honours the user's own requested slug but not another user's", async () => {
