@@ -14,7 +14,8 @@
     "./agent-api": "./src/agent-api.ts",
     "./job-contracts": "./src/job-contracts.ts",
     "./settings": "./src/settings.ts",
-    "./images": "./src/images.ts"
+    "./images": "./src/images.ts",
+    "./toolchain": "./src/toolchain/index.ts"
   },
   "scripts": {
     "test": "vitest run",

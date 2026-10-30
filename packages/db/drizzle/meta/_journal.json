@@ -57,6 +57,13 @@
       "when": 1793332370321,
       "tag": "0007_workspace_pinned_image",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793334220994,
+      "tag": "0008_toolchain",
+      "breakpoints": true
     }
   ]
 }

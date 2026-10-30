@@ -11,11 +11,18 @@ import {
   numeric,
   pgSequence,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import {
+  CHANNELS,
+  REQUESTED_ACTIONS,
+  RUN_STATUSES,
+  TOOL_STATES,
+} from "@agentbox/core/toolchain";
 
 const tstz = (name: string) => timestamp(name, { withTimezone: true });
 const createdAt = () => tstz("created_at").notNull().defaultNow();
@@ -245,6 +252,15 @@ export const workspaces = pgTable("workspaces", {
     .default(sql`0`),
   startFailures: integer("start_failures").notNull().default(0),
   githubSyncPending: boolean("github_sync_pending").notNull().default(false),
+  // Toolchain (per-workspace runtimes and agent CLIs). A user change bumps `generation`; a run that
+  // finishes stamps `appliedGeneration`. `pending` = apply once the workspace is running.
+  toolchainGeneration: integer("toolchain_generation").notNull().default(0),
+  toolchainAppliedGeneration: integer("toolchain_applied_generation").notNull().default(0),
+  toolchainPending: boolean("toolchain_pending").notNull().default(false),
+  // Distro ABI the installed toolchain was built against (from the image manifest at install time).
+  toolchainAbi: text("toolchain_abi"),
+  // Last time a reconcile run finished with every step ok.
+  toolchainReconciledAt: tstz("toolchain_reconciled_at"),
   createdAt: createdAt(),
 });
 
@@ -274,6 +290,8 @@ export const images = pgTable("images", {
     .default("building"),
   buildLog: text("build_log"),
   scanSummary: jsonb("scan_summary"),
+  // Parsed /opt/agentbox/versions.json (mise version, toolchain ABI, slim flag); null for older images.
+  manifest: jsonb("manifest"),
   overrideReason: text("override_reason"),
   createdBy: text("created_by").references(() => user.id),
   createdAt: createdAt(),
@@ -335,6 +353,74 @@ export const githubConnections = pgTable("github_connections", {
   createdAt: createdAt(),
 });
 
+export const workspaceTools = pgTable(
+  "workspace_tools",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    // Desired state: follow a channel, or pin an exact version / `major.minor` line.
+    channel: text("channel", { enum: CHANNELS }).notNull().default("latest"),
+    pinnedVersion: text("pinned_version"),
+    desired: boolean("desired").notNull().default(true),
+    // `default`: seeded from admin defaults; `user`: chosen by the user (defaults never override it).
+    source: text("source", { enum: ["default", "user"] })
+      .notNull()
+      .default("default"),
+    // One-shot request consumed by the next reconcile plan.
+    requestedAction: text("requested_action", { enum: REQUESTED_ACTIONS }),
+    // Observed state.
+    state: text("state", { enum: TOOL_STATES }).notNull().default("pending"),
+    installedVersion: text("installed_version"),
+    previousVersion: text("previous_version"),
+    backend: text("backend"),
+    installedAt: tstz("installed_at"),
+    observedAt: tstz("observed_at"),
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    lastError: text("last_error"),
+    updatedAt: tstz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.toolId] })],
+);
+
+// Central cache of what each tool publishes; filled by the worker timer, read by UI and planner.
+export const toolLatest = pgTable("tool_latest", {
+  toolId: text("tool_id").primaryKey(),
+  latest: text("latest"),
+  lts: text("lts"),
+  versions: jsonb("versions").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  meta: jsonb("meta").$type<Record<string, string>>(),
+  checkedAt: tstz("checked_at"),
+  error: text("error"),
+});
+
+export const toolchainRuns = pgTable(
+  "toolchain_runs",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id"),
+    trigger: text("trigger", {
+      enum: ["user", "admin", "start", "defaults", "bulk"],
+    }).notNull(),
+    status: text("status", { enum: RUN_STATUSES }).notNull().default("queued"),
+    // The generation this run covers.
+    generation: integer("generation").notNull().default(0),
+    plan: jsonb("plan"),
+    steps: jsonb("steps"),
+    log: text("log"),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(0),
+    startedAt: tstz("started_at"),
+    finishedAt: tstz("finished_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("toolchain_runs_ws_created_idx").on(t.workspaceId, t.createdAt)],
+);
+
 export const JOB_TYPES = [
   "provision_tenant",
   "start_workspace",
@@ -347,6 +433,7 @@ export const JOB_TYPES = [
   "restart_workspace",
   "fetch_logs",
   "inspect_workspace",
+  "reconcile_toolchain",
 ] as const;
 
 export const jobs = pgTable(
