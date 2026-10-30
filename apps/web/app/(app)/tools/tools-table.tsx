@@ -38,7 +38,13 @@ function RegistryChannelCell({ tool }: { tool: ToolRowView }) {
   const changed = value !== current && (value === "latest" || value.length > 4);
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <RegistryVersion label={tool.label} value={value} onChange={setValue} disabled={pending} />
+      <RegistryVersion
+        toolId={tool.toolId}
+        label={tool.label}
+        value={value}
+        onChange={setValue}
+        disabled={pending}
+      />
       {changed ? (
         <Button
           size="sm"

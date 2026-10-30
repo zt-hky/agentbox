@@ -1,4 +1,4 @@
-import type { CatalogEntry } from "./catalog.ts";
+import type { CatalogEntry, VersionSource } from "./catalog.ts";
 import snapshot from "./mise-registry.json" with { type: "json" };
 
 /**
@@ -36,6 +36,51 @@ export function registryTool(id: string): RegistryTool | undefined {
 }
 
 export const isRegistryToolId = (id: string): id is RegistryToolId => !!registryTool(id);
+
+/**
+ * Where to list a mise backend's published versions: GitHub releases for `aqua:`/`github:`/`ubi:`
+ * (`owner/repo`, any trailing aqua package path ignored), npm, PyPI, crates.io, or the Go module
+ * proxy. Core, asdf, vfox and the rest have no listable source (undefined).
+ */
+export function backendVersionSource(backend: string): VersionSource | undefined {
+  const i = backend.indexOf(":");
+  if (i < 0) return undefined;
+  const kind = backend.slice(0, i);
+  const rest = backend.slice(i + 1).replace(/\[.*$/, "");
+  switch (kind) {
+    case "aqua":
+    case "github":
+    case "ubi": {
+      const m = /^([A-Za-z0-9][A-Za-z0-9._-]*)\/([A-Za-z0-9._-]+)(?:\/|$)/.exec(rest);
+      return m ? { kind: "github-releases", repo: `${m[1]}/${m[2]}` } : undefined;
+    }
+    case "npm":
+      return /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/.test(rest)
+        ? { kind: "npm", pkg: rest }
+        : undefined;
+    case "pipx":
+    case "pypi":
+      return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(rest) ? { kind: "pypi", pkg: rest } : undefined;
+    case "cargo":
+      return /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(rest) ? { kind: "crates", crate: rest } : undefined;
+    case "go": {
+      // Proxy lists are per module: `github.com/o/r[/vN]`; the rest of the path is a package.
+      const m = /^(github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/v\d+)?)(?:\/|$)/.exec(rest);
+      return m ? { kind: "go-proxy", module: m[1] as string } : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** The version source of a registry tool: its first backend that has one. */
+export function registryVersionSource(id: string): VersionSource | undefined {
+  for (const backend of registryTool(id)?.backends ?? []) {
+    const source = backendVersionSource(backend);
+    if (source) return source;
+  }
+  return undefined;
+}
 
 const ENTRIES = new Map<string, CatalogEntry>();
 

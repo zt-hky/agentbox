@@ -64,6 +64,8 @@ export type VersionSource =
   | { kind: "go-dl" }
   | { kind: "adoptium" }
   | { kind: "github-releases"; repo: string }
+  | { kind: "crates"; crate: string }
+  | { kind: "go-proxy"; module: string }
   | { kind: "muse-channel" }
   /** Registry tools: no update check; `latest` resolves on the workspace at install time. */
   | { kind: "none" };

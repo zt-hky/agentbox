@@ -21,6 +21,12 @@ import {
   parsePypi,
   parseAdoptium,
   parseGithubReleases,
+  parseCrates,
+  parseGoProxyList,
+  backendVersionSource,
+  registryVersionSource,
+  fetchRegistryVersions,
+  goProxyListUrl,
   parseGoDl,
   parseMuseManifest,
   parseNodeIndex,
@@ -928,6 +934,106 @@ describe("mise registry", () => {
     expect(searchRegistry("op").some((h) => h.name === "1password")).toBe(true);
     expect(searchRegistry("e")).toHaveLength(20);
     expect(searchRegistry("grep").map((h) => h.name)).toContain("ripgrep");
+  });
+
+  it("maps a backend to a version source", () => {
+    expect(backendVersionSource("aqua:BurntSushi/ripgrep")).toEqual({
+      kind: "github-releases",
+      repo: "BurntSushi/ripgrep",
+    });
+    expect(backendVersionSource("aqua:bazelbuild/buildtools/buildifier")).toEqual({
+      kind: "github-releases",
+      repo: "bazelbuild/buildtools",
+    });
+    expect(backendVersionSource("github:o/r[exe=x]")).toEqual({
+      kind: "github-releases",
+      repo: "o/r",
+    });
+    expect(backendVersionSource("ubi:o/r")).toEqual({ kind: "github-releases", repo: "o/r" });
+    expect(backendVersionSource("npm:@biomejs/biome")).toEqual({
+      kind: "npm",
+      pkg: "@biomejs/biome",
+    });
+    expect(backendVersionSource("pipx:ansible")).toEqual({ kind: "pypi", pkg: "ansible" });
+    expect(backendVersionSource("pypi:ansible")).toEqual({ kind: "pypi", pkg: "ansible" });
+    expect(backendVersionSource("cargo:bat")).toEqual({ kind: "crates", crate: "bat" });
+    expect(backendVersionSource("go:github.com/rhysd/actionlint/cmd/actionlint")).toEqual({
+      kind: "go-proxy",
+      module: "github.com/rhysd/actionlint",
+    });
+    expect(backendVersionSource("go:github.com/onsi/ginkgo/v2/ginkgo")).toEqual({
+      kind: "go-proxy",
+      module: "github.com/onsi/ginkgo/v2",
+    });
+    for (const none of [
+      "core:java",
+      "asdf:x",
+      "vfox:x",
+      "http:x",
+      "conda:x",
+      "aqua:atlassian.com",
+      "npm:../x",
+      "cargo:a b",
+      "go:golang.org/x/tools/cmd/goimports",
+      "nocolon",
+    ]) {
+      expect(backendVersionSource(none), none).toBeUndefined();
+    }
+  });
+
+  it("takes the first backend that has a source and covers most of the registry", () => {
+    expect(registryVersionSource("mise:ripgrep")).toMatchObject({ kind: "github-releases" });
+    expect(registryVersionSource("mise:no-such-tool-xyz")).toBeUndefined();
+    const covered = REGISTRY.filter((t) => registryVersionSource(`mise:${t.name}`)).length;
+    expect(covered / REGISTRY.length).toBeGreaterThan(0.8);
+  });
+
+  it("parses crates.io and the go proxy; yanked, pre-releases and pseudo-versions drop out", () => {
+    const c = parseCrates({
+      versions: [
+        { num: "1.2.0" },
+        { num: "1.3.0", yanked: true },
+        { num: "1.4.0-rc.1" },
+        { num: "1.1.9" },
+      ],
+    });
+    expect(c).toEqual({ latest: "1.2.0", lts: null, versions: ["1.2.0", "1.1.9"] });
+    const g = parseGoProxyList(
+      "v1.9.0\nv1.10.2\nv1.11.0-rc1\nv0.0.0-20240101000000-abcdef123456\nv1.10.1+incompatible\n",
+    );
+    expect(g.versions).toEqual(["1.10.2", "1.9.0"]);
+    expect(g.latest).toBe("1.10.2");
+    expect(goProxyListUrl("github.com/Azure/azure")).toBe(
+      "https://proxy.golang.org/github.com/!azure/azure/@v/list",
+    );
+  });
+
+  it("strips <name>- tag prefixes from github releases", () => {
+    const r = parseGithubReleases([
+      { tag_name: "jq-1.7.1" },
+      { tag_name: "release-v1.7.0" },
+      { tag_name: "v1.6.0" },
+      { tag_name: "nightly" },
+      { tag_name: "jq-1.8.0-rc1" },
+    ]);
+    expect(r.versions).toEqual(["1.7.1", "1.7.0", "1.6.0"]);
+  });
+
+  it("fetches registry versions through the derived source (50 max) and rejects tools without one", async () => {
+    const urls: string[] = [];
+    const tags = Array.from({ length: 80 }, (_, i) => ({ tag_name: `v1.${i}.0` }));
+    const f: FetchLike = async (url) => {
+      urls.push(url);
+      return { ok: true, status: 200, json: async () => tags, text: async () => "" };
+    };
+    const info = await fetchRegistryVersions("mise:ripgrep", f);
+    expect(urls[0]).toMatch(/^https:\/\/api\.github\.com\/repos\/BurntSushi\/ripgrep\/releases/);
+    expect(info.versions).toHaveLength(50);
+    expect(info.versions[0]).toBe("1.79.0");
+    const none = REGISTRY.find((t) => !registryVersionSource(`mise:${t.name}`));
+    await expect(fetchRegistryVersions(`mise:${none!.name}`, f)).rejects.toThrow(
+      /no version source/,
+    );
   });
 
   it("plans install, pin drift and upgrade (reinstalls latest) without published versions", () => {

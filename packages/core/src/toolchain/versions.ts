@@ -122,8 +122,15 @@ export function satisfiesPin(entry: CatalogEntry, pinned: string, installed: str
   return installed === pinned;
 }
 
+/** How long `tool_latest` data counts as fresh (the worker's hourly refresh cadence). */
+export const TOOL_LATEST_TTL_MS = 60 * 60_000;
+
+/** Versions kept for a registry tool (listed newest first in its version select). */
+export const REGISTRY_VERSIONS_MAX = 50;
+
 /** How many versions to keep per tool in `tool_latest.versions`. */
 export function versionsToKeep(entry: CatalogEntry): number {
+  if (entry.kind === "registry") return REGISTRY_VERSIONS_MAX;
   return entry.lines ? 150 : 30;
 }
 
@@ -174,11 +181,14 @@ const githubReleasesSchema = z.array(
   z.object({ tag_name: z.string(), prerelease: z.boolean().optional() }).loose(),
 );
 
-/** GitHub releases list: stable `1.2.3` tags (an optional leading `v` is stripped). */
+/** Everything before the first digit of a tag: `v`, `jq-`, `release-v`, `@scope/pkg@`. */
+const TAG_PREFIX_RE = /^[A-Za-z@][^\d]*(?=\d)/;
+
+/** GitHub releases list: stable `1.2.3` tags (a leading `v` or `<name>-` prefix is stripped). */
 export function parseGithubReleases(json: unknown): LatestInfo {
   const rows = githubReleasesSchema.parse(json);
   const versions = sortStable(
-    rows.filter((r) => !r.prerelease).map((r) => r.tag_name.replace(/^v/, "")),
+    rows.filter((r) => !r.prerelease).map((r) => r.tag_name.replace(TAG_PREFIX_RE, "")),
   );
   return { latest: versions[0] ?? null, lts: null, versions };
 }
@@ -236,6 +246,23 @@ export function parsePypi(json: unknown): LatestInfo {
     .filter(([, files]) => files.some((f) => !f.yanked))
     .map(([v]) => v);
   const versions = sortStable(live);
+  return { latest: versions[0] ?? null, lts: null, versions };
+}
+
+const cratesSchema = z.object({
+  versions: z.array(z.object({ num: z.string(), yanked: z.boolean().optional() }).loose()),
+});
+
+/** crates.io `/api/v1/crates/<crate>`: stable, non-yanked versions. */
+export function parseCrates(json: unknown): LatestInfo {
+  const c = cratesSchema.parse(json);
+  const versions = sortStable(c.versions.filter((v) => !v.yanked).map((v) => v.num));
+  return { latest: versions[0] ?? null, lts: null, versions };
+}
+
+/** Go module proxy `@v/list`: one `v1.2.3` per line; pseudo-versions and pre-releases drop out. */
+export function parseGoProxyList(text: string): LatestInfo {
+  const versions = sortStable(text.split("\n").map((l) => l.trim().replace(/^v/, "")));
   return { latest: versions[0] ?? null, lts: null, versions };
 }
 

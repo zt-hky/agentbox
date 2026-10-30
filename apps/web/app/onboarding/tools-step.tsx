@@ -255,6 +255,7 @@ export function ToolsStep({
                   </span>
                 </span>
                 <RegistryVersion
+                  toolId={r.toolId}
                   label={r.name}
                   value={r.value}
                   disabled={pending}

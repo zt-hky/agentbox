@@ -1,9 +1,15 @@
-import { CATALOG, fetchLatestInfo, type FetchLike, type ToolId } from "@agentbox/core/toolchain";
+import {
+  CATALOG,
+  TOOL_LATEST_TTL_MS,
+  fetchLatestInfo,
+  type FetchLike,
+  type ToolId,
+} from "@agentbox/core/toolchain";
 import { upsertToolLatest } from "@agentbox/db/toolchain";
 import { errMessage } from "./log.ts";
 import type { Ctx } from "./types.ts";
 
-export const LATEST_INTERVAL_MS = 60 * 60_000;
+export const LATEST_INTERVAL_MS = TOOL_LATEST_TTL_MS;
 export const LATEST_FIRST_RUN_MS = 15_000;
 /** After a failed refresh the loop tries again sooner than the hourly cadence. */
 export const LATEST_NEGATIVE_TTL_MS = 60_000;

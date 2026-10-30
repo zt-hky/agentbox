@@ -88,6 +88,15 @@ remove and reinstall path as catalog tools.
 - **Search.** Server action `searchMiseTools(query)` (`apps/web/app/registry-actions.ts`,
   `requireActiveUser`): top 20 `{ id, name, backend, description }`, name/alias prefix matches first,
   then substring matches; an empty query returns nothing.
+- **Versions.** `registryVersionSource(id)` derives a source from the first backend that has one:
+  `aqua:`/`github:`/`ubi:` `owner/repo` -> GitHub releases (a `v` or `<name>-` tag prefix is stripped),
+  `npm:`, `pipx:`/`pypi:`, `cargo:` (crates.io) and `go:github.com/o/r` (module proxy); core, asdf,
+  vfox, http, conda and the rest have none (free-text version only). Server action
+  `registryToolVersions(id)` returns up to 50 stable versions newest first, cached in `tool_latest`
+  under the `mise:<name>` id for the hourly TTL and refreshed only on demand (registry tools are not in
+  the worker's refresh loop; a failed fetch is not retried for 60s). Failures and sourceless tools give
+  an empty list, so the select offers just `Latest` and `Other version…` (text input). 919 of the 998
+  snapshot entries have a source.
 - Tested by `apps/agent/test/apply-registry.test.ts` (real `apply.sh` against a fake `mise` shim in a
   temporary HOME), plus the core, web and worker toolchain tests.
 

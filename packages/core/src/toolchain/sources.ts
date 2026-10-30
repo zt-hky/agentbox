@@ -1,11 +1,14 @@
-import type { CatalogEntry } from "./catalog.ts";
+import type { CatalogEntry, VersionSource } from "./catalog.ts";
+import { registryCatalogEntry, registryVersionSource } from "./registry.ts";
 import {
   MUSE_CHANNEL_URL,
   parseMuseChannel,
   parseAdoptium,
   parseMavenMetadata,
   parsePypi,
+  parseCrates,
   parseGithubReleases,
+  parseGoProxyList,
   parseGoDl,
   parseMuseManifest,
   parseNodeIndex,
@@ -32,6 +35,12 @@ export const ADOPTIUM_URL =
   "https://api.adoptium.net/v3/info/release_versions?release_type=ga&image_type=jdk&architecture=x64&os=linux&vendor=eclipse&page_size=50&sort_order=DESC";
 export const githubReleasesUrl = (repo: string) =>
   `https://api.github.com/repos/${repo}/releases?per_page=100`;
+export const cratesUrl = (crate: string) => `https://crates.io/api/v1/crates/${crate}`;
+/** The module proxy lower-cases paths, escaping each capital as `!` + its lower-case form. */
+export const goProxyListUrl = (module: string) =>
+  `https://proxy.golang.org/${module.replace(/[A-Z]/g, (c) => `!${c.toLowerCase()}`)}/@v/list`;
+/** crates.io rejects requests without a User-Agent. */
+const CRATES_UA = "agentbox (https://github.com/agentbox)";
 export const PYTHON_VERSIONS_URL = "https://mise-versions.jdx.dev/python";
 export const npmPackumentUrl = (pkg: string) =>
   `https://registry.npmjs.org/${pkg.startsWith("@") ? `@${encodeURIComponent(pkg.slice(1))}` : pkg}`;
@@ -106,6 +115,18 @@ export async function fetchLatestInfo(
       info = parseGithubReleases(await res.json());
       break;
     }
+    case "crates": {
+      const url = cratesUrl(src.crate);
+      const res = await ok(await fetchImpl(url, { headers: { "user-agent": CRATES_UA } }), url);
+      info = parseCrates(await res.json());
+      break;
+    }
+    case "go-proxy": {
+      const url = goProxyListUrl(src.module);
+      const res = await ok(await fetchImpl(url), url);
+      info = parseGoProxyList(await res.text());
+      break;
+    }
     case "muse-channel": {
       const res = await ok(await fetchImpl(MUSE_CHANNEL_URL), MUSE_CHANNEL_URL);
       const channel = parseMuseChannel(await res.json());
@@ -117,4 +138,13 @@ export async function fetchLatestInfo(
       throw new Error(`${entry.label} has no version source`);
   }
   return { ...info, versions: info.versions.slice(0, versionsToKeep(entry)) };
+}
+
+/** Published versions (newest first, stable only) of a registry tool; throws when it has no source. */
+export async function fetchRegistryVersions(id: string, fetchImpl: FetchLike): Promise<LatestInfo> {
+  const base = registryCatalogEntry(id);
+  const source = registryVersionSource(id);
+  if (!base || !source) throw new Error(`${id} has no version source`);
+  const entry: CatalogEntry & { versionSource: VersionSource } = { ...base, versionSource: source };
+  return fetchLatestInfo(entry, fetchImpl);
 }

@@ -48,6 +48,7 @@ export function RegistryAdd({ added }: { added: readonly string[] }) {
           </span>
           <div className="flex flex-wrap items-center gap-2">
             <RegistryVersion
+              toolId={picked.id}
               label={picked.name}
               value={version}
               onChange={setVersion}
