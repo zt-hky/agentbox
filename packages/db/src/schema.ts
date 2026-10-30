@@ -421,12 +421,43 @@ export const toolchainRuns = pgTable(
   (t) => [index("toolchain_runs_ws_created_idx").on(t.workspaceId, t.createdAt)],
 );
 
+export const INTEGRATION_KINDS = ["copilot"] as const;
+
+/** Per-workspace account state beyond the gh token (Copilot device sign-in). */
+export const workspaceIntegrations = pgTable(
+  "workspace_integrations",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: INTEGRATION_KINDS }).notNull(),
+    status: text("status", {
+      enum: [
+        "starting",
+        "code",
+        "signed_in",
+        "expired",
+        "failed",
+        "cancelling",
+        "cancelled",
+        "signing_out",
+      ],
+    }).notNull(),
+    detail: jsonb("detail").notNull().default({}),
+    observedAt: tstz("observed_at").notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("workspace_integrations_ws_kind_uq").on(t.workspaceId, t.kind)],
+);
+
 export const JOB_TYPES = [
   "provision_tenant",
   "start_workspace",
   "stop_workspace",
   "delete_tenant",
   "sync_github",
+  "copilot_login",
   "update_limits",
   "build_image",
   "delete_image",

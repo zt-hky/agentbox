@@ -1,5 +1,6 @@
 import http from "node:http";
 import type { z } from "zod";
+import { copilotLoginStateSchema, type CopilotLoginState } from "@agentbox/core/accounts";
 import {
   buildImageResponseSchema,
   buildLogResponseSchema,
@@ -42,6 +43,11 @@ export interface AgentClient {
   stopWorkspace(ws: string): Promise<void>;
   githubConnect(ws: string, req: GithubConnectRequest): Promise<void>;
   githubDisconnect(ws: string): Promise<void>;
+  copilotLoginStart(ws: string): Promise<CopilotLoginState>;
+  copilotLoginState(ws: string): Promise<CopilotLoginState>;
+  copilotLoginCancel(ws: string): Promise<void>;
+  copilotLogout(ws: string): Promise<void>;
+  copilotProvider(ws: string, enabled: boolean): Promise<void>;
   workspaceLogs(ws: string, tail: number): Promise<WorkspaceLogResponse>;
   workspaceTop(ws: string): Promise<WorkspaceTopResponse>;
   stats(): Promise<StatsResponse>;
@@ -163,6 +169,31 @@ export function createAgentClient(opts: AgentClientOptions): AgentClient {
     },
     async githubDisconnect(ws) {
       await call("DELETE", `/v1/workspaces/${seg(ws)}/github`, undefined, okResponseSchema);
+    },
+    copilotLoginStart(ws) {
+      return call("POST", `/v1/workspaces/${seg(ws)}/copilot/login`, {}, copilotLoginStateSchema);
+    },
+    copilotLoginState(ws) {
+      return call(
+        "GET",
+        `/v1/workspaces/${seg(ws)}/copilot/login`,
+        undefined,
+        copilotLoginStateSchema,
+      );
+    },
+    async copilotLoginCancel(ws) {
+      await call("DELETE", `/v1/workspaces/${seg(ws)}/copilot/login`, undefined, okResponseSchema);
+    },
+    async copilotLogout(ws) {
+      await call("DELETE", `/v1/workspaces/${seg(ws)}/copilot`, undefined, okResponseSchema);
+    },
+    async copilotProvider(ws, enabled) {
+      await call(
+        "PUT",
+        `/v1/workspaces/${seg(ws)}/copilot/provider`,
+        { enabled },
+        okResponseSchema,
+      );
     },
     workspaceLogs(ws, tail) {
       return call(

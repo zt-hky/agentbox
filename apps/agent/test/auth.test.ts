@@ -54,7 +54,7 @@ describe("param validation", () => {
   it("routes cover every endpoint exactly once", () => {
     const keys = routes.map((r) => `${r.method} ${r.pattern.source}`);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toHaveLength(13);
+    expect(keys).toHaveLength(18);
   });
 });
 

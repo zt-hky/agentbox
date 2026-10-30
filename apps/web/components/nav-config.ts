@@ -27,7 +27,7 @@ export interface NavItem {
 export const USER_NAV: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, exact: true },
   { title: "Billing", url: "/billing", icon: CreditCard },
-  { title: "GitHub", url: "/settings/github", icon: GitBranch },
+  { title: "Accounts", url: "/settings/github", icon: GitBranch },
   { title: "Sessions", url: "/settings/sessions", icon: KeyRound },
 ];
 

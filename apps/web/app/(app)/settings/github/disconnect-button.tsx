@@ -12,7 +12,7 @@ export function DisconnectButton() {
     <ConfirmDialog
       trigger={<Button variant="outline">Disconnect GitHub</Button>}
       title="Disconnect GitHub?"
-      description="The token is revoked at GitHub and removed from your workspace's gh and git setup."
+      description="The token is revoked at GitHub. gh is logged out and its git credential helper is removed from your workspace. A Copilot sign-in made from this page is signed out as well."
       confirmLabel="Disconnect"
       destructive
       onConfirm={async () => {

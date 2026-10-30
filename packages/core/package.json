@@ -15,7 +15,8 @@
     "./job-contracts": "./src/job-contracts.ts",
     "./settings": "./src/settings.ts",
     "./images": "./src/images.ts",
-    "./toolchain": "./src/toolchain/index.ts"
+    "./toolchain": "./src/toolchain/index.ts",
+    "./accounts": "./src/accounts.ts"
   },
   "scripts": {
     "test": "vitest run",

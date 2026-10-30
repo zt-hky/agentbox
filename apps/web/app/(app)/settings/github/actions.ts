@@ -1,39 +1,30 @@
 "use server";
 
-import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { decrypt } from "@agentbox/core/tokens";
 import { db } from "@agentbox/db/client";
-import { githubConnections, workspaces } from "@agentbox/db/schema";
+import {
+  cancelOrSignOutCopilot,
+  disconnectGithubAccount,
+  getCopilotView,
+  requestCopilotLogin,
+  type CopilotView,
+} from "@/lib/accounts";
 import { guard } from "@/lib/action";
+import { clientIpFrom } from "@/lib/audit";
 import { encryptionKey, githubConnectConfig } from "@/lib/env";
 import { revokeGrant } from "@/lib/github";
-import { enqueueWorkspaceJob } from "@/lib/jobs";
 import { requireActiveUser } from "@/lib/session";
 
 export async function disconnectGithub() {
   return guard(async () => {
     const { user } = await requireActiveUser();
-    const rows = await db
-      .select()
-      .from(githubConnections)
-      .where(eq(githubConnections.userId, user.id))
-      .limit(1);
-    const conn = rows[0];
-    if (!conn) return;
-
-    await db.transaction(async (tx) => {
-      await tx.delete(githubConnections).where(eq(githubConnections.userId, user.id));
-      const ws = await tx
-        .select({ id: workspaces.id, status: workspaces.status })
-        .from(workspaces)
-        .where(eq(workspaces.userId, user.id))
-        .limit(1);
-      if (ws[0] && ws[0].status !== "deleted" && ws[0].status !== "deleting") {
-        // The worker reconciles: no connection row -> agent disconnect (or pending flag if asleep).
-        await enqueueWorkspaceJob(tx, ws[0].id, { type: "sync_github" });
-      }
+    const conn = await disconnectGithubAccount(db, {
+      userId: user.id,
+      ip: clientIpFrom(await headers()),
     });
+    if (!conn) return;
 
     const cfg = githubConnectConfig();
     if (cfg) {
@@ -44,5 +35,34 @@ export async function disconnectGithub() {
       }
     }
     revalidatePath("/settings/github");
+  });
+}
+
+export async function startCopilotLogin() {
+  return guard(async (): Promise<CopilotView> => {
+    const { user } = await requireActiveUser();
+    const view = await requestCopilotLogin(db, {
+      userId: user.id,
+      ip: clientIpFrom(await headers()),
+    });
+    revalidatePath("/settings/github");
+    return view;
+  });
+}
+
+/** Cancels a live sign-in, or signs Copilot out of the workspace when it already finished. */
+export async function cancelOrSignOutCopilotAction() {
+  return guard(async () => {
+    const { user } = await requireActiveUser();
+    await cancelOrSignOutCopilot(db, { userId: user.id, ip: clientIpFrom(await headers()) });
+    revalidatePath("/settings/github");
+  });
+}
+
+/** Polled by the sign-in panel while the device code is shown. */
+export async function pollCopilotState() {
+  return guard(async () => {
+    const { user } = await requireActiveUser();
+    return (await getCopilotView(db, user.id)).copilot;
   });
 }

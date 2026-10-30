@@ -22,6 +22,7 @@ import {
 } from "@agentbox/db/schema";
 import { AgentError } from "./agent-client.ts";
 import { errMessage } from "./log.ts";
+import { reconcileCopilot, startCopilotLogin } from "./accounts.ts";
 import { addEvent } from "./queue.ts";
 import type { Ctx } from "./types.ts";
 
@@ -100,7 +101,7 @@ function limitsOf(plan: typeof plans.$inferSelect | null, slug: string) {
   };
 }
 
-/** Reconcile the workspace's GitHub credentials with the user's github_connections row. */
+/** Reconcile the workspace's GitHub and Copilot accounts with the DB (github_connections, workspace_integrations). */
 export async function reconcileGithub(ctx: Ctx, ws: WorkspaceRow): Promise<void> {
   if (ws.status !== "running") {
     await ctx.db
@@ -123,6 +124,7 @@ export async function reconcileGithub(ctx: Ctx, ws: WorkspaceRow): Promise<void>
     } else {
       await ctx.agent.githubDisconnect(ws.slug);
     }
+    await reconcileCopilot(ctx, ws);
   } catch (e) {
     // 409: the container is not running (anymore); the next start reconciles.
     if (e instanceof AgentError && e.status === 409) {
@@ -313,6 +315,12 @@ export const handlers: Record<JobRow["type"], Handler> = {
     const { ws } = await loadTenant(ctx, job);
     if (ws.status === "deleted" || ws.status === "deleting") return;
     await reconcileGithub(ctx, ws);
+  },
+
+  async copilot_login(ctx, job) {
+    const { ws } = await loadTenant(ctx, job);
+    if (ws.status === "deleted" || ws.status === "deleting") return;
+    await startCopilotLogin(ctx, ws);
   },
 
   async update_limits(ctx, job) {

@@ -1,18 +1,20 @@
+import { githubScopeString } from "@agentbox/core/accounts";
 import { timingSafeEqual } from "node:crypto";
 import { appOrigin } from "./env";
 
 export const GH_STATE_COOKIE = "__Host-abx_gh_state";
 export const GH_STATE_MAX_AGE_S = 600;
-export const GH_SCOPE = "repo read:org workflow gist";
+export const WORKFLOW_PARAM = "workflow";
 
 export function callbackUrl(): string {
   return `${appOrigin()}/api/github/callback`;
 }
 
-export function authorizeUrl(clientId: string, state: string): string {
+/** `allowWorkflow` is the opt-in for editing workflow files; everything else is the minimum for git + gh. */
+export function authorizeUrl(clientId: string, state: string, allowWorkflow = false): string {
   const u = new URL("https://github.com/login/oauth/authorize");
   u.searchParams.set("client_id", clientId);
-  u.searchParams.set("scope", GH_SCOPE);
+  u.searchParams.set("scope", githubScopeString(allowWorkflow));
   u.searchParams.set("state", state);
   u.searchParams.set("redirect_uri", callbackUrl());
   return u.toString();

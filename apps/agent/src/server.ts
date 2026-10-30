@@ -12,6 +12,7 @@ import {
   workspaceLogQuerySchema,
   wsParamsSchema,
 } from "@agentbox/core/agent-api";
+import { copilotProviderRequestSchema } from "@agentbox/core/accounts";
 import { checkBearer } from "./auth.ts";
 import { MAX_BODY_BYTES } from "./config.ts";
 import { HttpError } from "./errors.ts";
@@ -21,6 +22,11 @@ import { errMessage, logEvent } from "./log.ts";
 import { collectStats } from "./stats.ts";
 import { createTenant, deleteTenant, updateLimits } from "./tenants.ts";
 import {
+  copilotLoginCancelOp,
+  copilotLoginStartOp,
+  copilotLoginStateOp,
+  copilotLogoutOp,
+  copilotProviderOp,
   githubConnect,
   githubDisconnect,
   startWorkspace,
@@ -110,6 +116,41 @@ export const routes: Route[] = [
     pattern: /^\/v1\/workspaces\/([^/]+)\/github$/,
     handler: async (c) => {
       await githubDisconnect(parse(wsParamsSchema, { ws: c.params["0"] }).ws);
+      return OK;
+    },
+  },
+  {
+    method: "POST",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/copilot\/login$/,
+    handler: (c) => copilotLoginStartOp(parse(wsParamsSchema, { ws: c.params["0"] }).ws),
+  },
+  {
+    method: "GET",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/copilot\/login$/,
+    handler: (c) => copilotLoginStateOp(parse(wsParamsSchema, { ws: c.params["0"] }).ws),
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/copilot\/login$/,
+    handler: async (c) => {
+      await copilotLoginCancelOp(parse(wsParamsSchema, { ws: c.params["0"] }).ws);
+      return OK;
+    },
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/copilot$/,
+    handler: async (c) => {
+      await copilotLogoutOp(parse(wsParamsSchema, { ws: c.params["0"] }).ws);
+      return OK;
+    },
+  },
+  {
+    method: "PUT",
+    pattern: /^\/v1\/workspaces\/([^/]+)\/copilot\/provider$/,
+    handler: async (c) => {
+      const { ws } = parse(wsParamsSchema, { ws: c.params["0"] });
+      await copilotProviderOp(ws, parse(copilotProviderRequestSchema, await c.body()));
       return OK;
     },
   },

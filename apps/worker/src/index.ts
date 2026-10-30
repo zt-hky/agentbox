@@ -1,4 +1,5 @@
 import http from "node:http";
+import { startCopilotLoginLoop } from "./accounts.ts";
 import { closeDb, db, runMigrations } from "@agentbox/db/client";
 import { createAgentClient } from "./agent-client.ts";
 import { loadConfig } from "./config.ts";
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
   log.info("gateway-auth listening", { port: config.port });
 
   runner.start();
+  const stopCopilotLogins = startCopilotLoginLoop(ctx);
   const stopMetering = startMeteringLoop(ctx);
   const stopCycle = startCycleLoop(ctx);
 
@@ -45,6 +47,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    stopCopilotLogins();
     log.info("shutting down", { signal });
     stopMetering();
     stopCycle();

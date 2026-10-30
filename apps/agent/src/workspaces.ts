@@ -1,3 +1,4 @@
+import type { CopilotProviderRequest } from "@agentbox/core/accounts";
 import { stat } from "node:fs/promises";
 import type {
   GithubConnectRequest,
@@ -6,6 +7,15 @@ import type {
   StartWorkspaceRequest,
   StartWorkspaceResponse,
 } from "@agentbox/core/agent-api";
+import {
+  copilotLoginCancel,
+  copilotLoginStart,
+  copilotLoginState,
+  copilotLogout,
+  ghDisconnect,
+  setCopilotProvider,
+  type ContainerExec,
+} from "./accounts.ts";
 import {
   podmanRunArgv,
   rootfsPath,
@@ -192,6 +202,11 @@ const exec = (
     ...opts,
   });
 
+const execFor =
+  (ws: string): ContainerExec =>
+  (args, opts) =>
+    exec(ws, args, opts);
+
 export function githubConnect(ws: string, req: GithubConnectRequest): Promise<void> {
   return withLock(ws, async () => {
     if (/[\r\n\0]/.test(req.token)) throw new HttpError(400, "invalid token");
@@ -222,18 +237,30 @@ export function githubConnect(ws: string, req: GithubConnectRequest): Promise<vo
 export function githubDisconnect(ws: string): Promise<void> {
   return withLock(ws, async () => {
     await requireRunning(ws);
-    const r = await exec(ws, ["gh", "auth", "logout", "--hostname", "github.com"], {
-      check: false,
-    });
-    if (r.code !== 0 && !/not logged in|no accounts|not logged/i.test(r.stderr)) {
-      throw new HttpError(
-        500,
-        `gh auth logout failed (${r.code}): ${r.stderr.trim().slice(0, 300)}`,
-      );
-    }
+    await ghDisconnect(execFor(ws));
     logEvent({ ws, event: "github_disconnected" });
   });
 }
+
+/** Run an accounts operation against the running container, serialized per workspace. */
+function accountsOp<T>(ws: string, event: string | null, fn: (e: ContainerExec) => Promise<T>) {
+  return withLock(ws, async () => {
+    await requireRunning(ws);
+    const out = await fn(execFor(ws));
+    if (event) logEvent({ ws, event });
+    return out;
+  });
+}
+
+export const copilotLoginStartOp = (ws: string) =>
+  accountsOp(ws, "copilot_login_started", (e) => copilotLoginStart(e));
+export const copilotLoginStateOp = (ws: string) =>
+  accountsOp(ws, null, (e) => copilotLoginState(e));
+export const copilotLoginCancelOp = (ws: string) =>
+  accountsOp(ws, "copilot_login_cancelled", copilotLoginCancel);
+export const copilotLogoutOp = (ws: string) => accountsOp(ws, "copilot_signed_out", copilotLogout);
+export const copilotProviderOp = (ws: string, req: CopilotProviderRequest) =>
+  accountsOp(ws, null, (e) => setCopilotProvider(e, req.enabled));
 
 const MAX_LOG_BYTES = 512 * 1024;
 

@@ -22,7 +22,8 @@ export async function enqueueWorkspaceJob(
           | "start_workspace"
           | "delete_tenant"
           | "update_limits"
-          | "sync_github";
+          | "sync_github"
+          | "copilot_login";
       }
     | { type: "stop_workspace"; reason: StopReason },
 ): Promise<void> {
