@@ -47,6 +47,7 @@ describe("isValidWorkspaceSlug", () => {
     ["Alice", false],
     ["admin", false],
     ["registry", false],
+    ["kcode", false],
     ["", false],
   ];
   it.each(rows)("%s -> %s", (s, ok) => expect(isValidWorkspaceSlug(s)).toBe(ok));

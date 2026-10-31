@@ -16,6 +16,7 @@ export const RESERVED_LABELS = [
   "internal",
   "gateway",
   "registry",
+  "kcode",
 ] as const;
 
 const SLUG_RE = /^[a-z][a-z0-9]{2,19}$/;

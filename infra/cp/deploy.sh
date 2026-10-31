@@ -23,6 +23,7 @@ done
 # Directories (the agent normally creates /run/agentbox via RuntimeDirectory; precreating is harmless).
 install -d -m 0711 /run/agentbox
 install -d -o "$CP_USER" -g "$CP_USER" -m 0700 "$CP_HOME/pg" "$CP_HOME/build"
+install -d -o "$CP_USER" -g "$CP_USER" -m 0755 "$CP_HOME/kcode-site"
 install -d -o "$CP_USER" -g "$CP_USER" -m 0755 "$CP_HOME/caddy" "$CP_HOME/.config" "$CP_HOME/.config/containers" "$QUADLET_DIR"
 
 # cp.env: non-secret settings shared by web, worker and caddy.

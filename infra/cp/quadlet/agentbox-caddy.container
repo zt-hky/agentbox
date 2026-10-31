@@ -8,6 +8,7 @@ Network=host
 EnvironmentFile=/var/lib/agentbox-cp/cp.env
 Volume=/var/lib/agentbox-cp/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
 Volume=/var/lib/agentbox-cp/landing:/srv/landing:ro
+Volume=/var/lib/agentbox-cp/kcode-site:/srv/kcode:ro
 DropCapability=ALL
 # The caddy binary carries file capability cap_net_bind_service; exec fails without it in the set.
 AddCapability=NET_BIND_SERVICE
