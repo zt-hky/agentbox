@@ -6,7 +6,7 @@
     <title>AgentBox: every agent deserves a machine of its own</title>
     <meta
       name="description"
-      content="Your own cloud workspace with T3 Code, VS Code, Claude Code, Codex and Oh My Pi ready in any browser. Rootless, firewalled, and asleep when you are."
+      content="Your own cloud workspace with K-code, VS Code, Claude Code, Codex and Oh My Pi ready in any browser. Rootless, firewalled, and asleep when you are."
     />
     <meta name="theme-color" content="#05070E" />
     <meta name="color-scheme" content="dark light" />
@@ -20,7 +20,7 @@
     <meta property="og:title" content="AgentBox: every agent deserves a machine of its own" />
     <meta
       property="og:description"
-      content="Your own cloud workspace with T3 Code, VS Code, Claude Code, Codex and Oh My Pi ready in any browser."
+      content="Your own cloud workspace with K-code, VS Code, Claude Code, Codex and Oh My Pi ready in any browser."
     />
     <meta property="og:image" content="https://agentbox.io.vn/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -61,6 +61,7 @@
         <nav class="nav-links" aria-label="Sections">
           <a href="#how">How it works</a>
           <a href="#security">Security</a>
+          <a href="#projects">Projects</a>
           <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
         </nav>
@@ -100,7 +101,7 @@
                 Every agent<br />deserves a<br />machine of<br />its own.
               </h1>
               <p class="lede two-tone" data-boot>
-                <b>Your own cloud workspace,</b> with T3 Code, VS Code, Claude Code, Codex and Oh My
+                <b>Your own cloud workspace,</b> with K-code, VS Code, Claude Code, Codex and Oh My
                 Pi ready in any browser.
               </p>
               <div class="cta-row" data-boot>
@@ -112,7 +113,7 @@
               <div class="hero-halo" aria-hidden="true"></div>
               <div class="box-wrap" id="hero-box"><!--art:box class="box-svg"--></div>
               <div class="pop pop-a glass" aria-hidden="true">
-                <div class="pop-bar"><i></i><i></i><i></i><span class="mono">T3 Code</span></div>
+                <div class="pop-bar"><i></i><i></i><i></i><span class="mono">K-code</span></div>
                 <div class="pop-body"><s></s><s class="w70"></s><s class="w50 on"></s></div>
               </div>
               <div class="pop pop-b glass" aria-hidden="true">
@@ -159,7 +160,7 @@
           <ul class="tiles">
             <li class="tile">
               <svg aria-hidden="true"><use href="#g-t3" /></svg>
-              <span>T3 Code</span>
+              <span>K-code</span>
             </li>
             <li class="tile">
               <svg aria-hidden="true"><use href="#g-vscode" /></svg>
@@ -221,7 +222,7 @@
                   <div>
                     <h3>The tools, installed.</h3>
                     <p>
-                      T3 Code, VS Code, Claude Code, Codex, Oh My Pi, git, gh, Node 24, Python, uv,
+                      K-code, VS Code, Claude Code, Codex, Oh My Pi, git, gh, Node 24, Python, uv,
                       ripgrep.
                     </p>
                   </div>
@@ -667,6 +668,55 @@ return round(
         </div>
       </section>
 
+      <!-- 8b. PROJECTS -->
+      <section class="projects" id="projects" aria-labelledby="proj-title">
+        <div class="wrap">
+          <p class="eyebrow mono">[ PROJECTS ]</p>
+          <h2 id="proj-title" class="display section-title reveal">Two projects, one workflow.</h2>
+          <p class="lede reveal proj-sub">
+            AgentBox gives every agent its own cloud machine. K-code is the coding-agent workspace
+            UI that runs on it, and works just as well on your laptop.
+          </p>
+          <ul class="proj-grid">
+            <li class="proj-card reveal">
+              <div class="proj-logo proj-logo-abx" aria-hidden="true">
+                <!--art:brand/mark class="mark"-->
+              </div>
+              <h3>AgentBox</h3>
+              <p>
+                The platform: a rootless, firewalled cloud workspace per user that sleeps when you
+                do. Every workspace opens K-code, VS Code and a terminal in any browser.
+              </p>
+              <div class="proj-links">
+                <a class="btn btn-primary btn-sm" href="{{app}}">Request access</a>
+              </div>
+            </li>
+            <li class="proj-card reveal">
+              <div class="proj-logo" aria-hidden="true">
+                <img src="/kcode-mark.svg" width="56" height="56" alt="" loading="lazy" />
+              </div>
+              <h3>K-code</h3>
+              <p>
+                The open GUI for your coding agents. Run Claude Code, Codex, Cursor, Oh My Pi and
+                OpenCode from one fast app, on desktop, in the browser, or from your phone. Open
+                source, built on T3 Code.
+              </p>
+              <div class="proj-links">
+                <a class="btn btn-primary btn-sm" href="https://kcode.agentbox.io.vn" rel="noopener"
+                  >kcode.agentbox.io.vn</a
+                >
+                <a
+                  class="btn btn-ghost btn-sm"
+                  href="https://github.com/zt-hky/k-code"
+                  rel="noopener"
+                  >GitHub</a
+                >
+              </div>
+            </li>
+          </ul>
+        </div>
+      </section>
+
       <!-- 9. PRICING (light) -->
       <section class="light pricing" id="pricing" aria-labelledby="price-title">
         <div class="wrap">
@@ -693,7 +743,7 @@ return round(
             <details class="reveal">
               <summary>What runs inside my workspace?</summary>
               <p>
-                A Linux machine (Ubuntu 26.04) with T3 Code, VS Code in the browser, Claude Code,
+                A Linux machine (Ubuntu 26.04) with K-code (the coding-agent workspace UI), VS Code in the browser, Claude Code,
                 Codex and Oh My Pi, plus git, the GitHub CLI, Node 24, Python, uv and ripgrep. Your
                 files live in <span class="mono">/workspace</span>.
               </p>
@@ -780,6 +830,8 @@ return round(
           <a href="{{app}}">Sign in</a>
           <a href="{{app}}">Request access</a>
           <a href="#security">Security</a>
+          <a href="#projects">Projects</a>
+          <a href="https://kcode.agentbox.io.vn" rel="noopener">K-code</a>
           <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
         </nav>
