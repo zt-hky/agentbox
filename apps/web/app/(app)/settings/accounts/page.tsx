@@ -26,7 +26,7 @@ export default async function AccountsPage({
     <>
       <PageHeader
         title="Accounts"
-        description="Git hosts for clone, pull and push over HTTPS and SSH, Copilot for the Copilot CLI and T3, and what to expect in VS Code."
+        description="Git hosts for clone, pull and push over HTTPS and SSH, Copilot for the Copilot CLI and K-code, and what to expect in VS Code."
       />
       <div className="max-w-3xl space-y-4">
         <GitAccounts view={view} next="settings" error={error} connected={connected} />
@@ -34,7 +34,7 @@ export default async function AccountsPage({
         {hasGithub ? (
           <Section
             title="GitHub Copilot"
-            description="Copilot CLI signs in with its own GitHub device code and needs an active Copilot plan. Once signed in it appears in T3 as a provider."
+            description="Copilot CLI signs in with its own GitHub device code and needs an active Copilot plan. Once signed in it appears in K-code as a provider."
           >
             <CopilotPanel initial={copilot} workspaceRunning={workspaceStatus === "running"} />
           </Section>
@@ -59,7 +59,7 @@ export default async function AccountsPage({
               {
                 label: "Copilot Chat",
                 value:
-                  "Not available in this editor. Copilot extensions are not published on Open VSX, and the Microsoft Marketplace terms limit them to Microsoft products. Use Copilot in T3 or run copilot in the terminal.",
+                  "Not available in this editor. Copilot extensions are not published on Open VSX, and the Microsoft Marketplace terms limit them to Microsoft products. Use Copilot in K-code or run copilot in the terminal.",
               },
             ]}
           />

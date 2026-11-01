@@ -11,21 +11,22 @@ const D = "agentbox.io.vn";
 
 describe("parseWorkspaceHost", () => {
   const rows: [string, { ws: string; svc: string } | null][] = [
-    ["alice-t3.agentbox.io.vn", { ws: "alice", svc: "t3" }],
+    ["alice-kcode.agentbox.io.vn", { ws: "alice", svc: "t3" }],
     ["alice-code.agentbox.io.vn", { ws: "alice", svc: "code" }],
-    ["ALICE-T3.AgentBox.io.vn:8480", { ws: "alice", svc: "t3" }],
-    ["app-t3.agentbox.io.vn", null],
-    ["a.b-t3.agentbox.io.vn", null],
+    ["ALICE-KCODE.AgentBox.io.vn:8480", { ws: "alice", svc: "t3" }],
+    ["alice-t3.agentbox.io.vn", null],
+    ["app-kcode.agentbox.io.vn", null],
+    ["a.b-kcode.agentbox.io.vn", null],
     ["alice-p5173.agentbox.io.vn", null],
     ["alice-term.agentbox.io.vn", null],
     ["alice.agentbox.io.vn", null],
-    ["alice-t3.example.com", null],
-    ["alice-t3.agentbox.io.vn.evil.com", null],
+    ["alice-kcode.example.com", null],
+    ["alice-kcode.agentbox.io.vn.evil.com", null],
     ["agentbox.io.vn", null],
-    ["-t3.agentbox.io.vn", null],
-    ["al-t3.agentbox.io.vn", null],
-    ["a-b-t3.agentbox.io.vn", null],
-    ["1alice-t3.agentbox.io.vn", null],
+    ["-kcode.agentbox.io.vn", null],
+    ["al-kcode.agentbox.io.vn", null],
+    ["a-b-kcode.agentbox.io.vn", null],
+    ["1alice-kcode.agentbox.io.vn", null],
     ["alice-constructor.agentbox.io.vn", null],
     ["alice-__proto__.agentbox.io.vn", null],
   ];
@@ -58,7 +59,7 @@ describe("isValidWorkspaceSlug", () => {
 
 describe("workspaceUrl / SERVICES", () => {
   it("builds URLs", () => {
-    expect(workspaceUrl("alice", "t3", D)).toBe("https://alice-t3.agentbox.io.vn/");
+    expect(workspaceUrl("alice", "t3", D)).toBe("https://alice-kcode.agentbox.io.vn/");
     expect(workspaceUrl("alice", "code", D)).toBe("https://alice-code.agentbox.io.vn/");
   });
   it("registry ports", () => {

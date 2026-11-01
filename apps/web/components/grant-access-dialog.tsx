@@ -119,7 +119,7 @@ export function GrantAccessDialog({
                     <Input autoComplete="off" {...field} />
                   </FormControl>
                   <FormDescription>
-                    URL: {slug || "<name>"}-t3.{baseDomain}. Cannot be changed later.
+                    URL: {slug || "<name>"}-kcode.{baseDomain}. Cannot be changed later.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

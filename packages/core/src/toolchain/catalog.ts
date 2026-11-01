@@ -403,7 +403,7 @@ export const CATALOG: readonly CuratedEntry[] = [
     id: "copilot",
     kind: "agent",
     label: "GitHub Copilot CLI",
-    description: "GitHub Copilot CLI; T3 talks to it over ACP (copilot --acp).",
+    description: "GitHub Copilot CLI; K-code talks to it over ACP (copilot --acp).",
     bins: [{ name: "copilot" }],
     versionArgs: ver,
     backends: [{ spec: "aqua:github/copilot-cli" }, { spec: "npm:@github/copilot" }],

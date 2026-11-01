@@ -41,11 +41,12 @@ export function parseWorkspaceHost(
   const idx = label.lastIndexOf("-");
   if (idx < 0) return null;
   const ws = label.slice(0, idx);
-  const svc = label.slice(idx + 1);
-  if (!isValidWorkspaceSlug(ws) || !isServiceName(svc)) return null;
+  const serviceLabel = label.slice(idx + 1);
+  const svc = serviceLabel === "kcode" ? "t3" : serviceLabel;
+  if (serviceLabel === "t3" || !isValidWorkspaceSlug(ws) || !isServiceName(svc)) return null;
   return { ws, svc };
 }
 
 export function workspaceUrl(ws: string, svc: ServiceName, baseDomain: string): string {
-  return `https://${ws}-${svc}.${baseDomain}/`;
+  return `https://${ws}-${svc === "t3" ? "kcode" : svc}.${baseDomain}/`;
 }

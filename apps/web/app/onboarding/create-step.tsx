@@ -19,7 +19,7 @@ const RETRY_DELETING_MS = 3000;
 
 const STAGE_LABEL = {
   provision: { label: "Provision machine", detail: "Allocating disk, CPU and memory" },
-  start: { label: "Start workspace", detail: "Booting T3 Code and VS Code" },
+  start: { label: "Start workspace", detail: "Booting K-code and VS Code" },
   tools: { label: "Install tools", detail: "Your languages and agents" },
 } as const;
 

@@ -94,7 +94,7 @@ export function SessionsTable({ rows }: { rows: SessionRow[] }) {
       flush
       columns={columns}
       data={rows}
-      empty="No workspace sessions yet. One appears when you open T3 Code or VS Code."
+      empty="No workspace sessions yet. One appears when you open K-code or VS Code."
     />
   );
 }

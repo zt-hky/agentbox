@@ -18,7 +18,7 @@ import { listen, request } from "./helpers/http.ts";
 import { seedWorld, type World } from "./helpers/seed.ts";
 
 const D = BASE_DOMAIN;
-const T3 = `alice-t3.${D}`;
+const T3 = `alice-kcode.${D}`;
 const CODE = `alice-code.${D}`;
 const NAV = { "sec-fetch-mode": "navigate" };
 
@@ -62,11 +62,11 @@ describe("authorize: routing and unauthenticated", () => {
   it("404s reserved labels, unknown services and non-workspace hosts; ignores X-Forwarded-Host", async () => {
     await seedWorld(t.db);
     for (const host of [
-      `admin-t3.${D}`,
+      `admin-kcode.${D}`,
       `alice-term.${D}`,
       `app.${D}`,
-      `alice-t3.evil.com`,
-      `a.b-t3.${D}`,
+      `alice-kcode.evil.com`,
+      `a.b-kcode.${D}`,
     ]) {
       expect((await get("/internal/authorize", { host, ...NAV })).status, host).toBe(404);
     }
@@ -112,7 +112,7 @@ describe("authorize: routing and unauthenticated", () => {
     const bob = await seedWorld(t.db, { slug: "bobby", slot: 2 });
     const other = await session(alice, CODE);
     expect((await get("/internal/authorize", { host: T3, cookie: other.cookie })).status).toBe(401);
-    const bobs = await session(bob, `bobby-t3.${D}`);
+    const bobs = await session(bob, `bobby-kcode.${D}`);
     expect((await get("/internal/authorize", { host: T3, cookie: bobs.cookie })).status).toBe(401);
     const revoked = await session(alice, T3, { revokedAt: clock.now() });
     expect((await get("/internal/authorize", { host: T3, cookie: revoked.cookie })).status).toBe(
@@ -138,9 +138,9 @@ describe("authorize: routing and unauthenticated", () => {
 
     const admin = await seedWorld(t.db, { slug: "boss", slot: 2, onboarded: false });
     await t.db.update(user).set({ role: "admin" }).where(eq(user.id, admin.userId));
-    const a = await session(admin, `boss-t3.${D}`);
+    const a = await session(admin, `boss-kcode.${D}`);
     expect(
-      (await get("/internal/authorize", { host: `boss-t3.${D}`, cookie: a.cookie })).status,
+      (await get("/internal/authorize", { host: `boss-kcode.${D}`, cookie: a.cookie })).status,
     ).toBe(200);
   });
 
@@ -394,9 +394,9 @@ describe("authorize: not running", () => {
           balance: 0n,
         }),
       ];
-      const s = await session(b, `bobby-t3.${D}`);
+      const s = await session(b, `bobby-kcode.${D}`);
       const r = await get("/internal/authorize", {
-        host: `bobby-t3.${D}`,
+        host: `bobby-kcode.${D}`,
         cookie: s.cookie,
         ...NAV,
       });

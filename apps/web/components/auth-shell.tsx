@@ -3,7 +3,7 @@ import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
 const TOOLS = [
-  ["T3 Code", "agent workspace in the browser"],
+  ["K-code", "agent workspace in the browser"],
   ["VS Code", "full editor with extensions"],
   ["Claude Code", "terminal agent"],
   ["Codex", "terminal agent"],

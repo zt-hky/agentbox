@@ -107,7 +107,7 @@ export default async function ToolsPage() {
       </Section>
       <p className="max-w-prose text-sm text-muted-foreground">
         Installed tools are linked into <Mono>~/.agentbox/bin</Mono>, which is first on{" "}
-        <Mono>PATH</Mono>. T3 Code and your terminal pick them up from there automatically.
+        <Mono>PATH</Mono>. K-code and your terminal pick them up from there automatically.
       </p>
 
       <RunPanel initialRun={run} initialHistory={view.history} canRetry={failed} />

@@ -137,8 +137,8 @@ export default async function AdminWorkspacePage({
           openable ? (
             <>
               <Button asChild variant="outline" size="sm">
-                <a href={`/auth/handoff?host=${w.slug}-t3.${domain}&path=/`}>
-                  Open T3 Code as admin
+                <a href={`/auth/handoff?host=${w.slug}-kcode.${domain}&path=/`}>
+                  Open K-code as admin
                 </a>
               </Button>
               <Button asChild variant="outline" size="sm">
@@ -297,9 +297,9 @@ async function OverviewTab({
             { label: "Slot", value: w.slot, mono: true },
             { label: "Linux user", value: linuxUser(w.slug), mono: true },
             { label: "UID", value: uid, mono: true },
-            { label: "T3 Code port", value: p.t3, mono: true },
+            { label: "K-code port", value: p.t3, mono: true },
             { label: "VS Code port", value: p.code, mono: true },
-            { label: "T3 Code host", value: `${w.slug}-t3.${domain}`, mono: true },
+            { label: "K-code host", value: `${w.slug}-kcode.${domain}`, mono: true },
             { label: "VS Code host", value: `${w.slug}-code.${domain}`, mono: true },
             { label: "Image", value: w.imageId ?? "none", mono: true },
             {

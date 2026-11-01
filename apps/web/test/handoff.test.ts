@@ -50,7 +50,7 @@ describe("decideHandoff", () => {
   const alice = { id: "u1", role: "user", accessStatus: "active" };
   const admin = { id: "u9", role: "admin", accessStatus: "active" };
   const ws = { id: "w1", userId: "u1", slug: "alice", status: "running" };
-  const host = "alice-t3.agentbox.io.vn";
+  const host = "alice-kcode.agentbox.io.vn";
 
   it("issues for the owner, both services", () => {
     expect(decideHandoff({ baseDomain, host, user: alice, workspace: ws })).toEqual({
@@ -115,13 +115,13 @@ describe("decideHandoff", () => {
   it.each([
     [null],
     [""],
-    ["alice-t3.evil.com"],
+    ["alice-kcode.evil.com"],
     ["alice.agentbox.io.vn"],
-    ["alice-t3.agentbox.io.vn:8443"],
-    ["ALICE-T3.agentbox.io.vn"],
+    ["alice-kcode.agentbox.io.vn:8443"],
+    ["ALICE-KCODE.agentbox.io.vn"],
     ["alice-p5173.agentbox.io.vn"],
-    ["app-t3.agentbox.io.vn"],
-    ["a.alice-t3.agentbox.io.vn"],
+    ["app-kcode.agentbox.io.vn"],
+    ["a.alice-kcode.agentbox.io.vn"],
   ])("denies malformed or unknown host %j", (h) => {
     expect(decideHandoff({ baseDomain, host: h, user: alice, workspace: ws })).toMatchObject({
       action: "deny",

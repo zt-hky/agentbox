@@ -1,4 +1,4 @@
-import { parseWorkspaceHost } from "@agentbox/core/hosts";
+import { parseWorkspaceHost, workspaceUrl } from "@agentbox/core/hosts";
 import { randomToken, hashToken } from "@agentbox/core/tokens";
 import { handoffCodes } from "@agentbox/db/schema";
 import type { DbLike } from "./db-types";
@@ -38,7 +38,7 @@ export function decideHandoff(input: {
     return { action: "deny", status: 403, reason: "Account is not active" };
   }
   const parsed = parseWorkspaceHost(host, baseDomain);
-  if (!parsed || host !== `${parsed.ws}-${parsed.svc}.${baseDomain.toLowerCase()}`) {
+  if (!parsed || `https://${host}/` !== workspaceUrl(parsed.ws, parsed.svc, baseDomain.toLowerCase())) {
     return { action: "deny", status: 400, reason: "Invalid workspace host" };
   }
   if (!workspace || workspace.slug !== parsed.ws || workspace.status === "deleted") {

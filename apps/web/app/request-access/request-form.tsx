@@ -103,7 +103,7 @@ export function RequestForm({
                 <Input autoComplete="off" spellCheck={false} {...field} />
               </FormControl>
               <FormDescription>
-                Becomes your workspace ID and URL: {slug.trim() || "<name>"}-t3.{baseDomain}. It
+                Becomes your workspace ID and URL: {slug.trim() || "<name>"}-kcode.{baseDomain}. It
                 cannot be changed later.
               </FormDescription>
               {slugAvailability.state === "ok" ? (

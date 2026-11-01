@@ -166,12 +166,12 @@ export function CopilotPanel({
       {status === "signed_in" ? (
         <div className="space-y-2 text-sm text-muted-foreground">
           <p>
-            Copilot CLI is signed in inside your workspace and listed in T3 as the GitHub Copilot
+            Copilot CLI is signed in inside your workspace and listed in K-code as the GitHub Copilot
             provider.
           </p>
           {view?.detail.providerError ? (
             <Notice tone="error">
-              The T3 provider entry could not be written yet ({view.detail.providerError}). It is
+              The K-code provider entry could not be written yet ({view.detail.providerError}). It is
               retried the next time the workspace syncs.
             </Notice>
           ) : null}
@@ -209,7 +209,7 @@ export function CopilotPanel({
           <ConfirmDialog
             trigger={<Button variant="outline">Sign out of Copilot</Button>}
             title="Sign out of Copilot?"
-            description="The Copilot login is deleted from your workspace and the Copilot provider is removed from T3."
+            description="The Copilot login is deleted from your workspace and the Copilot provider is removed from K-code."
             confirmLabel="Sign out"
             destructive
             onConfirm={stop}

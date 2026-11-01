@@ -66,7 +66,7 @@ export function Wizard({
         <PickStep
           key="agents"
           title="Choose your coding agents"
-          description="Terminal agents that also show up in T3 Code. You sign them in on the next step."
+          description="Terminal agents that also show up in K-code. You sign them in on the next step."
           options={state.agents}
           selected={agentIds}
           onSelectedChange={setAgentIds}

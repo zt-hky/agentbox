@@ -106,7 +106,7 @@ export default async function RequestAccessPage() {
           <Step
             state="todo"
             title="Workspace ready"
-            detail="T3 Code and VS Code open from your dashboard."
+            detail="K-code and VS Code open from your dashboard."
           />
         </ol>
       ) : null}

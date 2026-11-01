@@ -738,7 +738,7 @@ export function ImagesPanel({
     <>
       <Section
         title="Build a new image"
-        description="Builds take several minutes and only one can run at a time. Every image is slim (T3 Code and VS Code only) and gets the next 3-digit build number as its version; users install languages and agent CLIs themselves."
+        description="Builds take several minutes and only one can run at a time. Every image is slim (K-code and VS Code only) and gets the next 3-digit build number as its version; users install languages and agent CLIs themselves."
       >
         <form
           className="flex flex-wrap items-end gap-3"
@@ -755,7 +755,7 @@ export function ImagesPanel({
           }}
         >
           <div className="w-full space-y-1.5 sm:w-80">
-            <Label htmlFor="t3ref">T3 ref (branch, tag or commit)</Label>
+            <Label htmlFor="t3ref">K-code ref (branch, tag or commit)</Label>
             <Input
               id="t3ref"
               value={t3Ref}

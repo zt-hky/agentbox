@@ -92,7 +92,7 @@ export default async function DashboardPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Open T3 Code
+                  Open K-code
                 </a>
               </Button>
               <Button asChild size="lg" variant="outline">
