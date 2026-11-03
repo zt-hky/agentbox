@@ -29,7 +29,7 @@
     box-shadow 0.4s;
 }
 .nav.is-compact .nav-pill {
-  width: min(780px, 100%);
+  width: min(900px, 100%);
   background: rgba(8, 12, 24, 0.82);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
 }
@@ -157,7 +157,8 @@
   opacity: 1;
 }
 
-@media (max-width: 880px) {
+/* Full nav content is ~880px wide; below this the pill (viewport - 32px) cannot fit it. */
+@media (max-width: 960px) {
   .nav-links,
   .nav-signin {
     display: none;
